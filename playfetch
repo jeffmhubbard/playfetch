@@ -41,12 +41,10 @@
 #   -d, --debug : Print debug messages
 #
 
-
 import os
 import re
 import sys
 import time
-#import dateutil.parser
 import argparse
 import string
 import ConfigParser
@@ -55,7 +53,6 @@ from os import path
 
 import requests
 from mpd import MPDClient
-
 
 __APP_NAME__ = "playfetch"
 
@@ -101,7 +98,7 @@ def debug(msg):
 
 class PlayFetch:
 
-    config = None
+    config = DEFAULTS
 
     def __init__(self):
         """
@@ -116,11 +113,18 @@ class PlayFetch:
                 global DEBUG
                 DEBUG = True
 
-            # Load configuration
-            self.load_config(DEFAULTS)
+            # Load user configuration
+            self.load_config()
 
-            # Overwrite config with user options
-            self.user_opts(self.args)
+            # Overwrite config if user passed MPD args
+            if self.args.clear == True:
+                self.config['auto-clear'] = True
+
+            if self.args.load == True:
+                self.config['auto-load'] = True
+
+            if self.args.start == True:
+                self.config['auto-start'] = True
 
             # Call subcommand
             debug('subparser: %s' % self.args.subparser)
@@ -345,12 +349,12 @@ class PlayFetch:
                 '--all',
                 action='store_true',
                 help="Delete *ALL* playlists")
-        # older old
-#        parser_purge.add_argument(
-#                '-o', '--older',
-#                action='store',
-#                type=int,
-#                help="Number of hours")
+        # older than
+        parser_purge.add_argument(
+                '-o', '--older',
+                action='store',
+                type=int,
+                help="Number of hours")
 
         # purge playlists in path
         parser_test = subparsers.add_parser(
@@ -377,61 +381,37 @@ class PlayFetch:
         return parser.parse_args(sys.argv[1:])
 
 
-    def load_config(self, defaults):
+    def load_config(self):
         """
-        Load configuration defaults, then attempt to overwrite from config
+        Load configuration from user config
         """
         debug('load_config()')
 
-        # Load defaults first
-        config = defaults
-        debug('defaults: %s' % defaults)
+        config = self.config
 
         # Override from user config
         filename = path.expanduser(config['user-conf'])
         if path.exists(filename):
             debug('user config found: %s' % filename)
-            user_conf = ConfigParser.SafeConfigParser(defaults)
+            user_conf = ConfigParser.SafeConfigParser(self.config)
             user_conf.read(filename)
 
+            # All keys are required for config to be valid
             try:
-                # All keys are required for config to be valid
                 config['proxy-url'] = user_conf.get('playfetch', 'url')
                 config['playlist-dir'] = user_conf.get('playfetch', 'dest')
                 config['playlist-prefix'] = user_conf.get('playfetch', 'prefix')
                 config['mpd-host'] = user_conf.get('mpd', 'host')
                 config['mpd-port'] = user_conf.get('mpd', 'port')
-                config['auto-clear'] = user_conf.getboolean('mpd', 'clear')
-                config['auto-load'] = user_conf.getboolean('mpd', 'load')
-                config['auto-start'] = user_conf.getboolean('mpd', 'start')
+                config['clear'] = user_conf.getboolean('mpd', 'clear')
+                config['load'] = user_conf.getboolean('mpd', 'load')
+                config['start'] = user_conf.getboolean('mpd', 'start')
                 debug('user config: %s' % config)
             except:
                 error("Invalid config: %s" % filename)
                 warn("Loading defaults")
 
         self.config = config
-
-
-    def user_opts(self, args):
-        """
-        Override config from args
-        """
-        debug('user_opts()')
-
-        # Process --clear
-        if args.clear == True:
-            debug('args.clear: %s' % args.clear)
-            self.config['auto-clear'] = True
-
-        # Process --load
-        if args.load == True:
-            debug('args.load: %s' % args.load)
-            self.config['auto-load'] = True
-
-        # Process --start
-        if args.start == True:
-            debug('args.start: %s' % args.start)
-            self.config['auto-start'] = True
 
 
     def get_filename(self, prefix=None, command=None, artist=None, title=None):
@@ -445,26 +425,27 @@ class PlayFetch:
 
         if prefix:
             debug('prefix: %s' % prefix)
-            filename += str(prefix)
+            filename += prefix
             filename += "-"
 
         if command:
             debug('command: %s' % command)
-            filename += str(command)
+            filename += command
 
         if artist:
+            artist = ''.join(c for c in artist if c in valid_chars)
             debug('artist: %s' % artist)
             filename += "-"
-            filename += str(artist)
+            filename += artist
 
         if title:
+            title = ''.join(c for c in title if c in valid_chars)
             debug('title: %s' % title)
             filename += "-"
-            filename += str(title)
+            filename += title
 
         if len(filename) > 0:
-            fname = ''.join(c for c in filename if c in valid_chars)
-            fname = re.sub('\s', '_', fname)
+            fname = re.sub('\s', '_', filename)
             fname += ext
             debug('fname: %s' % fname)
             return fname.lower()
@@ -484,11 +465,11 @@ class PlayFetch:
         return yes.lower() in ('', "yes", "y", "true", "t", "1", "on")
 
 
-    def get_playlist(self, request, playlist):
+    def fetch_playlist(self, request, playlist):
         """
         Fetch playlist
         """
-        debug('get_playlist()')
+        debug('fetch_playlist()')
 
         # Make sure we have a valid request or bail
         debug('status code: %s' % request.status_code)
@@ -515,11 +496,11 @@ class PlayFetch:
             return True
 
 
-    def get_from_text(self, request, dest, prefix, command):
+    def fetch_batch(self, request, dest, prefix, command):
         """
         Parse request.text and fetch playlists
         """
-        debug('get_from_text()')
+        debug('fetch_batch()')
 
         for line in request.text.splitlines():
 
@@ -533,14 +514,14 @@ class PlayFetch:
                 debug('playlist: %s' % playlist)
 
                 subreq = requests.get(url)
-                self.get_playlist(subreq, playlist)
+                self.fetch_playlist(subreq, playlist)
 
 
-    def get_discography(self, request, dest, prefix, command, artist):
+    def fetch_albums(self, request, dest, prefix, command, artist):
         """
         Parse request.text and fetch playlists
         """
-        debug('get_discography()')
+        debug('fetch_albums()')
 
         for line in request.text.splitlines():
 
@@ -555,7 +536,7 @@ class PlayFetch:
                 debug('playlist: %s' % playlist)
 
                 subreq = requests.get(url)
-                self.get_playlist(subreq, playlist)
+                self.fetch_playlist(subreq, playlist)
 
 
     ##############################################################################
@@ -590,21 +571,19 @@ class PlayFetch:
         """
         debug('_mpd_auto()')
 
-        config = self.config
-
         self._mpd_init()
         self.client.command_list_ok_begin()
 
-        if config['auto-clear']:
+        if self.config['auto-clear']:
             self.client.clear()
             info("Clearing playlist!")
 
-        if config['auto-load'] and playlist:
+        if self.config['auto-load'] and playlist:
             playlist = playlist.split('.')[0]
             self.client.load(playlist)
             info("Loading playlist: %s" % playlist)
 
-        if config['auto-start']:
+        if self.config['auto-start']:
             self.client.play(0)
             info("Starting...")
 
@@ -750,20 +729,6 @@ class PlayFetch:
         info("Skipping...")
 
 
-    def _mpd_songid(self):
-        """
-        Return play id for current track
-        """
-        debug('_mpd_songid()')
-
-        self._mpd_init()
-        current_url = self.client.currentsong()['file']
-        url, songid = current_url.split('=')
-        self._mpd_end()
-
-        return songid
-
-
     def _mpd_listplaylists(self):
         """
         Get MPDClient.listplaylists()
@@ -807,6 +772,20 @@ class PlayFetch:
         name = song['artist']+' - '+song['title']
 
         return name
+
+
+    def _cur_playid(self):
+        """
+        Return play id for current track
+        """
+        debug('_cur_playid()')
+
+        self._mpd_init()
+        current_url = self.client.currentsong()['file']
+        url, playid = current_url.split('=')
+        self._mpd_end()
+
+        return playid
 
 
     ##############################################################################
@@ -878,7 +857,7 @@ class PlayFetch:
         if request and playlist:
             debug('request: %s' % request)
             debug('playlist: %s' % playlist)
-            if self.get_playlist(request, playlist):
+            if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
                 self._mpd_auto(filename)
 
@@ -953,7 +932,7 @@ class PlayFetch:
         if request and playlist:
             debug('request: %s' % request)
             debug('playlist: %s' % playlist)
-            if self.get_playlist(request, playlist):
+            if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
                 self._mpd_auto(filename)
 
@@ -999,7 +978,7 @@ class PlayFetch:
         if request and playlist:
             debug('request: %s' % request)
             debug('playlist: %s' % playlist)
-            if self.get_playlist(request, playlist):
+            if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
                 self._mpd_auto(filename)
 
@@ -1038,7 +1017,7 @@ class PlayFetch:
         if request and playlist:
             debug('request: %s' % request)
             debug('playlist: %s' % playlist)
-            if self.get_playlist(request, playlist):
+            if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
                 self._mpd_auto(filename)
 
@@ -1096,7 +1075,7 @@ class PlayFetch:
             debug('request.url: %s' % request.url)
 
             # Read data and fetch playlists
-            if self.get_discography(request, dest, prefix, url_name, artist):
+            if self.fetch_albums(request, dest, prefix, url_name, artist):
                 info("Discography fetched!")
         else:
             error('unexpected error')
@@ -1125,7 +1104,7 @@ class PlayFetch:
         debug('request.url: %s' % request.url)
 
         # Read data and fetch playlists
-        if self.get_from_text(request, dest, prefix, url_name):
+        if self.fetch_batch(request, dest, prefix, url_name):
             info("Stations fetched!")
 
 
@@ -1151,7 +1130,7 @@ class PlayFetch:
         debug('request.url: %s' % request.url)
 
         # Read data and fetch playlists
-        if self.get_from_text(request, dest, prefix, url_name):
+        if self.fetch_batch(request, dest, prefix, url_name):
             info("Stations fetched!")
 
 
@@ -1206,18 +1185,19 @@ class PlayFetch:
         config = self.config
         debug('config: %s' % config)
 
-        songid = self._mpd_songid()
-        debug('songid: %s' % songid)
+        playid = self._cur_playid()
+        debug('playid: %s' % playid)
 
-        url_opts = { 'id': songid }
+        url_opts = { 'id': playid }
                
         if self.args.up:
             url_cmd = '/like_song'
-            info('Thumbs up!')
+            success = 'Thumbs up!'
+            skip = False
         elif self.args.down:
             url_cmd = '/dislike_song'
-            info('Thumbs down!')
-            self._mpd_skip()
+            success = 'Thumbs down!'
+            skip = True
         else:
             pass
 
@@ -1225,6 +1205,11 @@ class PlayFetch:
         url_base = proxy_url + url_cmd
         request = requests.get(url_base, params=url_opts)
         debug('request.url: %s' % request.url)
+        if request.status_code == 200:
+            info(success)
+            if skip:
+                self._mpd_skip()
+
 
     def purge(self, args):
         """
@@ -1262,9 +1247,9 @@ class PlayFetch:
         debug('new prefix: %s' % prefix)
 
         # Process --older
-#        if args.older:
-#            debug('older: %s' % args.older)
-#            older = int(args.older)
+        if args.older:
+            debug('older: %s' % args.older)
+            older = int(args.older)
 
         # Query MPD
         self._mpd_init()
@@ -1276,35 +1261,33 @@ class PlayFetch:
 
         # Add playlists with matching prefix
         for dirfile in plist_data:
-#            print(dateutil.parser.parse(dirfile['last-modified']))
-#            print(datetime.now().isoformat(' '))
             if dirfile['playlist'].startswith(prefix):
                 to_delete.append(dirfile)
         debug("to_delete: {}, {}".format(len(to_delete), to_delete))
 
         # Filter playlists older than n hours
-#        if args.older and older > 0:
-#            older_than = []
-#            now = time.time()
-#            hours = older * 3600
-#
-#            for dfile in to_delete:
-#                fext = dfile['playlist']
-#                fext += ".m3u"
-#                mtime = path.getmtime(path.join(dest, fext))
-#                debug("mtime: %s" % mtime)
-#                debug("now: %s" % now)
-#                difftime = int(now - mtime)
-#                debug("difftime: %s" % difftime)
-#                debug("hours: %s" % hours)
-#
-#                if difftime > hours:
-#                    debug('older: %s' % dfile['playlist'])
-#                    older_than.append(dfile)
-#
-#            if len(older_than) > 0:
-#                debug("older_than: {}, {}".format(len(older_than), older_than))
-#                to_delete = older_than
+        if args.older and older > 0:
+            older_than = []
+            now = time.time()
+            hours = older * 3600
+
+            for dfile in to_delete:
+                fext = dfile['playlist']
+                fext += ".m3u"
+                mtime = path.getmtime(path.join(dest, fext))
+                debug("mtime: %s" % mtime)
+                debug("now: %s" % now)
+                difftime = int(now - mtime)
+                debug("difftime: %s" % difftime)
+                debug("hours: %s" % hours)
+
+                if difftime > hours:
+                    debug('older: %s' % dfile['playlist'])
+                    older_than.append(dfile)
+
+            if len(older_than) > 0:
+                debug("older_than: {}, {}".format(len(older_than), older_than))
+                to_delete = older_than
 
         # No matching playlists
         if len(to_delete) == 0:
