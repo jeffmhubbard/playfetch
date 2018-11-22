@@ -356,12 +356,6 @@ class PlayFetch:
                 type=int,
                 help="Number of hours")
 
-        # purge playlists in path
-        parser_test = subparsers.add_parser(
-                'test',
-                description="Delete playlists with matching prefix",
-                usage="playfetch [-f] purge --[filter]")
-
         # rank current song 
         parser_rank = subparsers.add_parser(
                 'rank',
@@ -797,8 +791,6 @@ class PlayFetch:
         """
         debug('search()')
 
-        config = self.config
-
         url_name = 'search'
         url_cmd = '/get_by_search'
         url_opts = {
@@ -840,9 +832,9 @@ class PlayFetch:
             debug('album: %s' % args.album)
             url_opts['type'] = 'album'
 
-        proxy_url = config['proxy-url']
-        prefix = config['playlist-prefix']
-        dest = config['playlist-dir']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['playlist-prefix']
+        dest = self.config['playlist-dir']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -867,8 +859,6 @@ class PlayFetch:
         Fetch new station from search
         """
         debug('radio()')
-
-        config = self.config
 
         url_name = "radio"
         url_cmd = "/get_new_station_by_search"
@@ -915,9 +905,9 @@ class PlayFetch:
             debug('exact: %s' % args.exact)
             url_opts['exact'] = 'yes'
 
-        proxy_url = config['proxy-url']
-        prefix = config['playlist-prefix']
-        dest = config['playlist-dir']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['playlist-prefix']
+        dest = self.config['playlist-dir']
 
         # Build request URL
         url_base = proxy_url + url_cmd
@@ -943,8 +933,6 @@ class PlayFetch:
         """
         debug('collection()')
 
-        config = self.config
-
         url_name = "collection"
         url_cmd = "/get_collection"
         url_opts = {
@@ -958,12 +946,12 @@ class PlayFetch:
 
         # Process --shoff
         if args.shoff == True:
-            debug('shoff: %s' % str(args.shoff))
+            debug('shoff: %s' % args.shoff)
             url_opts['shuffle'] = False
 
-        proxy_url = config['proxy-url']
-        prefix = config['playlist-prefix']
-        dest = config['playlist-dir']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['playlist-prefix']
+        dest = self.config['playlist-dir']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -989,8 +977,6 @@ class PlayFetch:
         """
         debug('lucky()')
 
-        config = self.config
-
         url_name = 'lucky'
         url_cmd = '/get_ifl_station'
         url_opts = { 'num_tracks': 20 }
@@ -1000,9 +986,9 @@ class PlayFetch:
             debug('tracks: %s' % args.tracks)
             url_opts['num_tracks'] = int(args.tracks)
 
-        proxy_url = config['proxy-url']
-        prefix = config['playlist-prefix']
-        dest = config['playlist-dir']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['playlist-prefix']
+        dest = self.config['playlist-dir']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1028,8 +1014,6 @@ class PlayFetch:
         """
         debug('disco()')
 
-        config = self.config
-
         search_cmd = '/search_id'
         search_opts = {
                 'type': 'artist',
@@ -1046,7 +1030,7 @@ class PlayFetch:
         # Process search string
         if args.search_string:
             debug("search_string: %s" % args.search_string)
-            artist = str(args.search_string)
+            artist = args.search_string
             search_opts['artist'] = artist
         else:
             error("needs artist")
@@ -1057,9 +1041,9 @@ class PlayFetch:
             debug('exact: %s' % args.exact)
             search_opts['exact'] = 'yes'
 
-        proxy_url = config['proxy-url']
-        prefix = config['playlist-prefix']
-        dest = config['playlist-dir']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['playlist-prefix']
+        dest = self.config['playlist-dir']
 
         # Build search URL
         search_url = proxy_url + search_cmd
@@ -1088,15 +1072,13 @@ class PlayFetch:
         """
         debug('stations()')
 
-        config = self.config
-
         url_name = 'stations'
         url_cmd = '/get_all_stations'
         url_opts = { 'format': 'text' }
 
-        proxy_url = config['proxy-url']
-        prefix = config['playlist-prefix']
-        dest = config['playlist-dir']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['playlist-prefix']
+        dest = self.config['playlist-dir']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1114,15 +1096,13 @@ class PlayFetch:
         """
         debug('playlists()')
 
-        config = self.config
-
         url_name = 'playlists'
         url_cmd = '/get_all_playlists'
         url_opts = { 'format': 'text' }
 
-        proxy_url = config['proxy-url']
-        prefix = config['playlist-prefix']
-        dest = config['playlist-dir']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['playlist-prefix']
+        dest = self.config['playlist-dir']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1156,13 +1136,11 @@ class PlayFetch:
         """
         debug('list()')
 
-        config = self.config
-
-        prefix = config['playlist-prefix']
+        prefix = self.config['playlist-prefix']
 
         # Process --all
         if args.all:
-            prefix = str()
+            prefix = ''
 
         # Filter playlists starting with prefix, if blank then all
         to_list = []
@@ -1182,9 +1160,6 @@ class PlayFetch:
         """
         debug('rank()')
 
-        config = self.config
-        debug('config: %s' % config)
-
         playid = self._cur_playid()
         debug('playid: %s' % playid)
 
@@ -1201,7 +1176,7 @@ class PlayFetch:
         else:
             pass
 
-        proxy_url = config['proxy-url']
+        proxy_url = self.config['proxy-url']
         url_base = proxy_url + url_cmd
         request = requests.get(url_base, params=url_opts)
         debug('request.url: %s' % request.url)
@@ -1217,11 +1192,9 @@ class PlayFetch:
         """
         debug('purge()')
 
-        config = self.config
-
-        dest = path.expanduser(config['playlist-dir'])
+        dest = path.expanduser(self.config['playlist-dir'])
         debug('path: %s' % dest)
-        prefix = config['playlist-prefix']
+        prefix = self.config['playlist-prefix']
         debug('prefix: %s' % prefix)
 
         if not prefix == '':
@@ -1242,7 +1215,7 @@ class PlayFetch:
         # Process --all
         elif args.all:
             debug('all: %s' % args.all)
-            prefix = str()
+            prefix = ''
 
         debug('new prefix: %s' % prefix)
 
@@ -1297,7 +1270,7 @@ class PlayFetch:
         for pname in to_delete:
             debug("pname: %s" % pname)
             pname = pname['playlist']+".m3u"
-            fname = path.join(config['playlist-dir'], pname)
+            fname = path.join(self.config['playlist-dir'], pname)
             fpath = path.expanduser(fname)
             debug("fpath: %s" % fpath)
 
