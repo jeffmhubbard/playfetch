@@ -577,6 +577,7 @@ class PlayFetch:
 
         if self.config['clear']:
             self.client.clear()
+            snum = 0
             info("Clearing playlist!")
 
         if self.config['load'] and playlist:
@@ -585,8 +586,7 @@ class PlayFetch:
             info("Loading playlist: %s" % playlist)
 
         if self.config['start']:
-            print(snum)
-            self.client.play(int(snum))
+            self.client.play(snum)
             info("Starting...")
 
         self._mpd_end()
@@ -1147,12 +1147,14 @@ class PlayFetch:
 
         # Process --all
         if args.all:
-            match = ''
+            match = None
 
         # Filter playlists starting with prefix
         to_list = []
         for p in self._mpd_listplaylists():
-            if p['playlist'].split('-')[0] == match:
+            if args.all:
+                to_list.append(p['playlist'])
+            elif p['playlist'].split('-')[0] == match:
                 to_list.append(p['playlist'])
 
         # Print
