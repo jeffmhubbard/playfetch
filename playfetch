@@ -307,11 +307,16 @@ class PlayFetch:
                 'show',
                 description="Print current MPD playlist",
                 usage="playfetch show")
-        # list all
+        # print status
         parser_show.add_argument(
                 '-s', '--status',
                 action='store_true',
                 help="Also print MPD status")
+        # print status only
+        parser_show.add_argument(
+                '--so',
+                action='store_true',
+                help="Print only MPD status")
 
         # list playlists in path
         parser_list = subparsers.add_parser(
@@ -403,7 +408,7 @@ class PlayFetch:
                 debug('user config: %s' % config)
             except:
                 error("Invalid config: %s" % filename)
-                warn("Loading defaults")
+                warn("Using defaults")
 
         self.config = config
 
@@ -592,7 +597,7 @@ class PlayFetch:
         self._mpd_end()
 
 
-    def _mpd_playlist(self, status=False):
+    def _mpd_playlist(self):
         """
         Print current MPD playlist
         """
@@ -640,11 +645,6 @@ class PlayFetch:
             info('(playlist empty)')
 
         self._mpd_end()
-
-        # if --status
-        if status:
-            print(u'\u2500'*80)
-            self._mpd_status()
 
 
     def _mpd_status(self):
@@ -765,7 +765,10 @@ class PlayFetch:
         """
         debug('_cur_id()')
 
-        return self.client.currentsong()['id']
+        try:
+            return self.client.currentsong()['id']
+        except:
+            pass
 
 
     def _cur_song(self):
@@ -1135,11 +1138,24 @@ class PlayFetch:
         """
         debug('show()')
 
+        plist = True
         status = False
+
+        # if --status
         if args.status:
             status = True
 
-        self._mpd_playlist(status)
+        # if --so
+        if args.so:
+            plist = False
+            status = True
+
+        if plist:
+            self._mpd_playlist()
+        if status:
+            if plist:
+                print(u'\u2500'*80)
+            self._mpd_status()
 
 
     def list(self, args):
