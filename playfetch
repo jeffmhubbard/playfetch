@@ -604,41 +604,46 @@ class PlayFetch:
         # get column width for ljust
         colw = len(str(len(plistinfo)+1))+1
 
-        for song in plistinfo:
-            if 'pos' in song:
-                lnum = song['pos'].ljust(colw)
-            # if we find name key, use that
-            if 'name' in song:
-                name = song['name']
-            # otherwise we build it
-            elif 'artist' in song:
-                name = song['artist']+' - '
-                name += song['album']+' - '
-                name += song['title']
-            else:
-                error('unexpected data')
+        if len(plistinfo) > 0:
+            for song in plistinfo:
+                if 'pos' in song:
+                    lnum = int(song['pos'])+1
+                    lnum = str(lnum).ljust(colw)
+                # if we find name key, use that
+                if 'name' in song:
+                    name = song['name']
+                # otherwise we build it
+                elif 'artist' in song:
+                    name = song['artist']+' - '
+                    name += song['album']+' - '
+                    name += song['title']
+                else:
+                    error('unexpected data')
 
-            # highlight current song
-            curin = ''
-            sep = '│ '
-            end = '\033[0m'
-            if song['id'] == self._cur_id():
-                curin = '\033[37;1m'
+                # highlight current song
+                curin = ''
+                sep = '│ '
+                end = '\033[0m'
+                if song['id'] == self._cur_id():
+                    curin = '\033[37;1m'
 
-            # trim song name > 80
-            slen = len(sep)
-            nlen = len(name)
-            tlen = colw+slen+nlen
-            if tlen > 80:
-                tamt = tlen - 80
-                name = name[:-tamt]
+                # trim song name > 80
+                slen = len(sep)
+                nlen = len(name)
+                tlen = colw+slen+nlen
+                if tlen > 80:
+                    tamt = tlen - 80
+                    name = name[:-tamt]
 
-            print("{}{}{}{}{}".format(curin, lnum, sep, name, end))
+                print("{}{}{}{}{}".format(curin, lnum, sep, name, end))
+        else:
+            info('(playlist empty)')
 
         self._mpd_end()
 
         # if --status
         if status:
+            print(u'\u2500'*80)
             self._mpd_status()
 
 
@@ -661,7 +666,8 @@ class PlayFetch:
             line2 += state
 
         if 'song' in info:
-            song = "#"+info['song']+"/"
+            snum = str(int(info['song'])+1)
+            song = "#"+snum+"/"
             song += info['playlistlength']+"  "
             line2 += song
 
@@ -709,7 +715,6 @@ class PlayFetch:
             else: cns += "off  "
             line3 += cns
 
-        print(u'\u2500'*80)
         print(line1)
         print(line2)
         print(line3)
@@ -769,8 +774,11 @@ class PlayFetch:
         """
         debug('_cur_song()')
 
-        song = self.client.currentsong()
-        name = song['artist']+' - '+song['title']
+        try:
+            song = self.client.currentsong()
+            name = song['artist']+' - '+song['title']
+        except:
+            name = '(no current track)'
 
         return name
 
