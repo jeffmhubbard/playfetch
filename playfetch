@@ -16,7 +16,7 @@
 #   playfetch [-fcls] lucky --tracks <num>
 #
 # Fetch artist discography:
-#   playfetch [-f] disco 'artist' --exact
+#   playfetch [-f] discog 'artist' --exact
 #
 # Fetch all station playlists:
 #   playfetch [-f] stations
@@ -140,8 +140,8 @@ class PlayFetch:
                 self.stations(self.args)
             elif self.args.subparser == 'playlists':
                 self.playlists(self.args)
-            elif self.args.subparser == 'disco':
-                self.disco(self.args)
+            elif self.args.subparser == 'discog':
+                self.discog(self.args)
             elif self.args.subparser == 'show':
                 self.show(self.args)
             elif self.args.subparser == 'list':
@@ -286,18 +286,18 @@ class PlayFetch:
                 description="Fetch all user playlists",
                 usage="playfetch [-f] playlists")
 
-        # disco subcommand
-        parser_disco = subparsers.add_parser(
-                'disco',
+        # discog subcommand
+        parser_discog = subparsers.add_parser(
+                'discog',
                 description="Fetch artist discography",
-                usage="playfetch [-fcls] disco <string> -e")
+                usage="playfetch [-fcls] discog <string> -e")
         # search string
-        parser_disco.add_argument(
+        parser_discog.add_argument(
                 'search_string',
                 action='store',
                 help="Search string as 'Artist'")
         # exact
-        parser_disco.add_argument(
+        parser_discog.add_argument(
                 '-e', '--exact',
                 action='store_true',
                 help="Exact match only")
@@ -1026,11 +1026,11 @@ class PlayFetch:
                 self._mpd_auto(filename)
 
 
-    def disco(self, args):
+    def discog(self, args):
         """
         Fetch artist discography
         """
-        debug('disco()')
+        debug('discog()')
 
         search_cmd = '/search_id'
         search_opts = {
