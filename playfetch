@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # PlayFetch - Fetch playlists from GMusicProxy
@@ -47,7 +47,7 @@ import sys
 import time
 import argparse
 import string
-import ConfigParser
+import configparser
 from datetime import datetime
 from os import path
 
@@ -392,7 +392,7 @@ class PlayFetch:
         filename = path.expanduser(config['user-conf'])
         if path.exists(filename):
             debug('user config found: %s' % filename)
-            user_conf = ConfigParser.SafeConfigParser(self.config)
+            user_conf = configparser.ConfigParser(self.config)
             user_conf.read(filename)
 
             # All keys are required for config to be valid
@@ -461,7 +461,7 @@ class PlayFetch:
         """
         debug('user_confirm()')
 
-        yes = raw_input('%s. Continue? (y/n) [y]: ' % prompt)
+        yes = input('%s. Continue? (y/n) [y]: ' % prompt)
         debug('val: %s' % yes)
         return yes.lower() in ('', "yes", "y", "true", "t", "1", "on")
 
@@ -1296,7 +1296,7 @@ class PlayFetch:
                 if not args.force:
                     if not self.user_confirm('Delete: %s' % pname):
                         continue
-	        try:
+                try:
                     os.remove(fpath)
                     info("Deleted: %s" % pname)
                 except Exception as e:
