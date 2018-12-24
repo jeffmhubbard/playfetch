@@ -1,7 +1,7 @@
 - Fix purge() --older filter
 - Add purge() --newer filter
 - Make purge() --all work with others
-- See if its possible to get Thumbs Up and
+* See if its possible to get Thumbs Up and
     Recently Added playlists
-- Python 3
-- Add show() --so to print only status
++ Python 3
++ Add show() --so to print only status

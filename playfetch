@@ -55,29 +55,33 @@ import requests
 from mpd import MPDClient
 
 __APP_NAME__ = "playfetch"
+__APP_DESC__ = "Fetch playlists from GMusicProxy"
+
+__APP_DIRS__ = {
+        'cache': path.expanduser('~/.cache/'+__APP_NAME__),
+        'config': path.expanduser('~/.config/'+__APP_NAME__),
+}
 
 DEBUG = False
 
 # Default configuration
 DEFAULTS = {
     # GMusicProxy URL
-    'proxy': 'http://localhost:9999',
+    'proxy-url': 'http://localhost:9999',
     # Playlist prefix
-    'prefix': 'pf', 
+    'plist-prefix': 'pf', 
     # Path to MPD playlist directory
-    'dest': '~/.mpd/playlists',
+    'plist-dest': '~/.mpd/playlists',
     # Host name of MPD server
-    'host': 'localhost',
+    'mpd-host': 'localhost',
     # Port number of MPD server
-    'port': 6600,
+    'mpd-port': 6600,
     # Clear current MPD playlist
-    'clear': False,
+    'auto-clear': 'false',
     # Append playlist to current mpd playlist
-    'load': False,
+    'auto-load': 'false',
     # Start playing current mpd playlist
-    'start': False,
-    # Path to user config
-    'user-conf': '~/.config/playfetch/config',
+    'auto-start': 'false',
 }
 
 
@@ -118,13 +122,13 @@ class PlayFetch:
 
             # Overwrite config if user passed MPD args
             if self.args.clear == True:
-                self.config['clear'] = True
+                self.config['auto-clear'] = True
 
             if self.args.load == True:
-                self.config['load'] = True
+                self.config['auto-load'] = True
 
             if self.args.start == True:
-                self.config['start'] = True
+                self.config['auto-start'] = True
 
             # Call subcommand
             debug('subparser: %s' % self.args.subparser)
@@ -381,15 +385,14 @@ class PlayFetch:
 
 
     def load_config(self):
-        """
-        Load configuration from user config
+        """Load configuration from user config
         """
         debug('load_config()')
 
-        config = self.config
+        config = {}
 
         # Override from user config
-        filename = path.expanduser(config['user-conf'])
+        filename = path.join(__APP_DIRS__['config'], 'config')
         if path.exists(filename):
             debug('user config found: %s' % filename)
             user_conf = configparser.ConfigParser(self.config)
@@ -397,20 +400,12 @@ class PlayFetch:
 
             # All keys are required for config to be valid
             try:
-                config['proxy'] = user_conf.get('playfetch', 'proxy')
-                config['dest'] = user_conf.get('playfetch', 'dest')
-                config['prefix'] = user_conf.get('playfetch', 'prefix')
-                config['host'] = user_conf.get('mpd', 'host')
-                config['port'] = user_conf.get('mpd', 'port')
-                config['clear'] = user_conf.getboolean('mpd', 'clear')
-                config['load'] = user_conf.getboolean('mpd', 'load')
-                config['start'] = user_conf.getboolean('mpd', 'start')
+                for cvar in self.config.keys():
+                    config[cvar] = user_conf.get(__APP_NAME__, cvar)
                 debug('user config: %s' % config)
+                self.config = config
             except:
                 error("Invalid config: %s" % filename)
-                warn("Using defaults")
-
-        self.config = config
 
 
     def get_filename(self, prefix=None, command=None, artist=None, title=None):
@@ -549,8 +544,8 @@ class PlayFetch:
         """
         debug('_mpd_init()')
 
-        host = self.config['host']
-        port = self.config['port']
+        host = self.config['mpd-host']
+        port = self.config['mpd-port']
 
         self.client = MPDClient()
         self.client.connect(host, port)
@@ -580,17 +575,20 @@ class PlayFetch:
             snum = 0
         debug("snum: %s" % snum)
 
-        if self.config['clear']:
+        auto_clear = str(self.config['auto-clear']).lower()
+        if auto_clear == 'true':
             self.client.clear()
             snum = 0
             info("Clearing playlist!")
 
-        if self.config['load'] and playlist:
+        auto_load = str(self.config['auto-load']).lower()
+        if auto_load == 'true' and playlist:
             playlist = playlist.split('.')[0]
             self.client.load(playlist)
             info("Loading playlist: %s" % playlist)
 
-        if self.config['start']:
+        auto_start = str(self.config['auto-start']).lower()
+        if auto_start == 'true':
             self.client.play(snum)
             info("Starting...")
 
@@ -850,9 +848,9 @@ class PlayFetch:
             debug('album: %s' % args.album)
             url_opts['type'] = 'album'
 
-        proxy_url = self.config['proxy']
-        prefix = self.config['prefix']
-        dest = self.config['dest']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -923,9 +921,9 @@ class PlayFetch:
             debug('exact: %s' % args.exact)
             url_opts['exact'] = 'yes'
 
-        proxy_url = self.config['proxy']
-        prefix = self.config['prefix']
-        dest = self.config['dest']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
 
         # Build request URL
         url_base = proxy_url + url_cmd
@@ -967,9 +965,9 @@ class PlayFetch:
             debug('shoff: %s' % args.shoff)
             url_opts['shuffle'] = False
 
-        proxy_url = self.config['proxy']
-        prefix = self.config['prefix']
-        dest = self.config['dest']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1004,9 +1002,9 @@ class PlayFetch:
             debug('tracks: %s' % args.tracks)
             url_opts['num_tracks'] = int(args.tracks)
 
-        proxy_url = self.config['proxy']
-        prefix = self.config['prefix']
-        dest = self.config['dest']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1059,9 +1057,9 @@ class PlayFetch:
             debug('exact: %s' % args.exact)
             search_opts['exact'] = 'yes'
 
-        proxy_url = self.config['proxy']
-        prefix = self.config['prefix']
-        dest = self.config['dest']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
 
         # Build search URL
         search_url = proxy_url + search_cmd
@@ -1094,9 +1092,9 @@ class PlayFetch:
         url_cmd = '/get_all_stations'
         url_opts = { 'format': 'text' }
 
-        proxy_url = self.config['proxy']
-        prefix = self.config['prefix']
-        dest = self.config['dest']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1118,9 +1116,9 @@ class PlayFetch:
         url_cmd = '/get_all_playlists'
         url_opts = { 'format': 'text' }
 
-        proxy_url = self.config['proxy']
-        prefix = self.config['prefix']
-        dest = self.config['dest']
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1167,7 +1165,7 @@ class PlayFetch:
         """
         debug('list()')
 
-        match = self.config['prefix']
+        match = self.config['plist-prefix']
 
         # Process --all
         if args.all:
@@ -1209,7 +1207,7 @@ class PlayFetch:
         else:
             pass
 
-        proxy_url = self.config['proxy']
+        proxy_url = self.config['proxy-url']
         url_base = proxy_url + url_cmd
         request = requests.get(url_base, params=url_opts)
 
@@ -1225,8 +1223,8 @@ class PlayFetch:
         """
         debug('purge()')
 
-        dest = path.expanduser(self.config['dest'])
-        prefix = self.config['prefix']
+        dest = path.expanduser(self.config['plist-dest'])
+        prefix = self.config['plist-prefix']
 
         if not prefix == '':
             prefix += '-'
@@ -1288,7 +1286,7 @@ class PlayFetch:
 
         for pname in to_delete:
             pname = pname['playlist']+".m3u"
-            fname = path.join(self.config['dest'], pname)
+            fname = path.join(self.config['plist-dest'], pname)
             fpath = path.expanduser(fname)
 
             # Check if playlist exists and confirm deletion
