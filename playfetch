@@ -632,17 +632,21 @@ class PlayFetch:
             for song in plist_info:
 
                 try:
+                    # get playlist number (+1 because we like to start at 1)
                     if 'pos' in song:
                         item_num = int(song['pos'])+1
                         item_num = str(item_num).ljust(col_width)
+
                     # if we find name key, use that
                     if 'name' in song:
-                        name = song['name']
+                        song_info = song['name']
+
                     # otherwise we build it
-                    elif 'artist' in song:
-                        name = song['artist']+' - '
-                        name += song['album']+' - '
-                        name += song['title']
+                    elif all(key in song for key in ['artist', 'album', 'title']):
+                        song_info = "{} - {} - {}".format(
+                                song['artist'],
+                                song['album'],
+                                song['title'])
 
                 except Exception as e:
                     sys.exit(e)
@@ -656,13 +660,13 @@ class PlayFetch:
 
                 # trim song name > 80
                 sep_len = len(sep)
-                name_len = len(name)
+                name_len = len(song_info)
                 total_len = col_width+sep_len+name_len
                 if total_len > 80:
                     trim_amt = total_len - 80
-                    name = name[:-trim_amt]
+                    song_info = song_info[:-trim_amt]
 
-                print("{}{}{}{}{}".format(begin, item_num, sep, name, end))
+                print("{}{}{}{}{}".format(begin, item_num, sep, song_info, end))
         else:
             info('(playlist empty)')
 
@@ -765,7 +769,7 @@ class PlayFetch:
 
 
     def _cur_id(self):
-        """Return ID for current track in playlist
+        """Get MPD playlist ID for current song
         """
 
         try:
@@ -775,20 +779,20 @@ class PlayFetch:
 
 
     def _cur_song(self):
-        """Return 'Artist - Title' for current song
+        """Get 'Artist - Title' for current song
         """
 
         try:
             song = self.client.currentsong()
-            name = song['artist']+' - '+song['title']
+            name = "{} - {}".format(song['artist'], song['title'])
         except:
-            name = '(no current track)'
+            name = "(not playing)"
 
         return name
 
 
     def _cur_playid(self):
-        """Return Play ID for current track
+        """Get Play ID for current song
         """
 
         self.mpd_init()
@@ -799,7 +803,6 @@ class PlayFetch:
         return playid
 
 
-################################################################################
     """Subcommands
 
     Args:
