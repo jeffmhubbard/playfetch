@@ -1074,7 +1074,7 @@ class PlayFetch:
             debug('request.url: %s' % request.url)
 
             # Read data and fetch playlists
-            if self.fetch_albums(request, dest, prefix, url_name, artist):
+            if self.fetch_albums(request, prefix, url_name, artist):
                 info("Discography fetched!")
         else:
             error('unexpected error')
