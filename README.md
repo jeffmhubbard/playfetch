@@ -25,7 +25,7 @@ Fetch all user playlists:
   `playfetch [-f] playlists`  
   
 Fetch artist discography:  
-  `playfetch [-f] disco 'artist' --exact`  
+  `playfetch [-f] discog 'artist' --exact`  
   
 Rank current track:  
   `playfetch rank --up|--down`  
@@ -41,7 +41,7 @@ Delete playlists:
   
   
 #### Options
-*  -f or --force:   Force overwriting playlists  
+*  -f or --force:   Do not prompt for overwrite or delete  
 *  -c or --clear:   Clear current MPD playlist  
 *  -l or --load:    Append to current MPD playlist  
 *  -s or --start:   Start playing current MPD playlist  
@@ -50,16 +50,21 @@ Delete playlists:
 
 
 #### Configuration  
-A configuration file can be placed at ~/.config/playfetch/config  
+A configuration file can be placed at `~/.config/playfetch/config`  
 
 > [playfetch]  
-> url = http://localhost:9999  
-> dest = ~/.mpd/playlists  
-> prefix = play  
-> 
-> [mpd]  
-> host = localhost  
-> port = 6600  
-> clear = False  
-> load = False  
-> start = False  
+> proxy-url = http://localhost:9999  
+> plist-dest = ~/.mpd/playlists  
+> plist-prefix = play  
+> mpd-host = localhost  
+> mpd-port = 6600  
+> auto-clear = False  
+> auto-load = False  
+> auto-start = False 
+  
+  
+#### Tips
+* Add `alias pf="playfetch"` to `.zshrc` or `.bashrc`   
+* Add keybind for `playfetch -fcls lucky -t 100`  
+  
+  
