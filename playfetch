@@ -439,7 +439,7 @@ class PlayFetch:
         if len(str_list) > 0:
             filename = '-'.join(str_list)
             filename += ext
-            debug("filename: %s" % filename)
+            debug("filename: %s" % filename.lower())
             return filename.lower()
 
         else:
@@ -519,7 +519,7 @@ class PlayFetch:
             command (str): String containing subcommand
         """
 
-        for line in request.text.splitlines():
+        for line in results.text.splitlines():
             if len(line) > 0:
 
                 name, url = line.split('|')
@@ -1099,7 +1099,7 @@ class PlayFetch:
         debug('request.url: %s' % request.url)
 
         # Read data and fetch playlists
-        if self.fetch_batch(request, dest, prefix, url_name):
+        if self.fetch_batch(request, prefix, url_name):
             info("Stations fetched!")
 
 
@@ -1121,7 +1121,7 @@ class PlayFetch:
         debug('request.url: %s' % request.url)
 
         # Read data and fetch playlists
-        if self.fetch_batch(request, dest, prefix, url_name):
+        if self.fetch_batch(request, prefix, url_name):
             info("Stations fetched!")
 
 
