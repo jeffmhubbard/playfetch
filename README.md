@@ -12,11 +12,14 @@ Fetch new station playlist:
 Fetch playlist of search results:  
   `playfetch [-fcls] search 'artist, title' --tracks <num> --album --exact`  
   
-Fetch playlist of entire collection:  
+Fetch collection playlist:  
   `playfetch [-fcls] collection --rating <rating> --shoff`  
   
 Fetch I'm Feeling Lucky playlist:  
   `playfetch [-fcls] lucky --tracks <num>`  
+  
+Fetch artist top tracks:  
+  `playfetch [-fcls] top 'artist' --tracks <num>`  
   
 Fetch all station playlists:  
   `playfetch [-f] stations`  

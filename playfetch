@@ -69,7 +69,7 @@ DEFAULTS = {
     # GMusicProxy URL
     'proxy-url': 'http://localhost:9999',
     # Playlist prefix
-    'plist-prefix': 'pf', 
+    'plist-prefix': 'pf',
     # Path to MPD playlist directory
     'plist-dest': '~/.mpd/playlists',
     # Host name of MPD server
@@ -89,11 +89,14 @@ DEFAULTS = {
 def info(msg):
     print("> %s" % msg)
 
+
 def error(msg):
     print("ERROR: " + msg)
 
+
 def warn(msg):
     print("WARN: " + msg)
+
 
 def debug(msg):
     if DEBUG:
@@ -120,13 +123,13 @@ class PlayFetch:
             self.load_config()
 
             # Overwrite config if user passed MPD args
-            if self.args.clear == True:
+            if self.args.clear is True:
                 self.config['auto-clear'] = True
 
-            if self.args.load == True:
+            if self.args.load is True:
                 self.config['auto-load'] = True
 
-            if self.args.start == True:
+            if self.args.start is True:
                 self.config['auto-start'] = True
 
             # Call subcommand
@@ -145,6 +148,8 @@ class PlayFetch:
                 self.cmd_playlists(self.args)
             elif self.args.subparser == 'discog':
                 self.cmd_discog(self.args)
+            elif self.args.subparser == 'top':
+                self.cmd_toptracks(self.args)
             elif self.args.subparser == 'show':
                 self.cmd_show(self.args)
             elif self.args.subparser == 'list':
@@ -156,7 +161,6 @@ class PlayFetch:
 
         except Exception as e:
             sys.exit(e)
-
 
     def read_args(self):
         """Read command line arguments
@@ -247,6 +251,23 @@ class PlayFetch:
                 '-e', '--exact',
                 action='store_true',
                 help="Exact match only")
+
+        # top subcommand
+        parser_top = subparsers.add_parser(
+                'top',
+                description="Fetch Top Tracks playlist",
+                usage="playfetch [-fcls] top <string> -t <num> -e")
+        # search string
+        parser_top.add_argument(
+                'search_string',
+                action='store',
+                help="Search string as 'Artist'")
+        # num tracks
+        parser_top.add_argument(
+                '-t', '--tracks',
+                action='store',
+                type=int,
+                help="Number of tracks to return")
 
         # collection subcommand
         parser_collection = subparsers.add_parser(
@@ -364,7 +385,7 @@ class PlayFetch:
                 type=int,
                 help="Number of hours")
 
-        # rank current song 
+        # rank current song
         parser_rank = subparsers.add_parser(
                 'rank',
                 description="Rank song currently playing in MPD",
@@ -381,7 +402,6 @@ class PlayFetch:
                 help="Thumbs down")
 
         return parser.parse_args(sys.argv[1:])
-
 
     def load_config(self):
         """Load configuration from user config
@@ -404,7 +424,6 @@ class PlayFetch:
                 self.config = config
             except:
                 error("Invalid config: %s" % filename)
-
 
     def _get_filename(self, prefix=None, command=None, artist=None, title=None):
         """Get filename with extension for new playlist
@@ -445,13 +464,12 @@ class PlayFetch:
         else:
             return False
 
-
     def _get_valid_str(self, text):
         """Get valid strings for filenames
 
         Args:
             text (str): String to make valid
-        
+
         Returns:
             Return string containing valid file path characters
         """
@@ -459,7 +477,6 @@ class PlayFetch:
         vchar = "-_.()[] %s%s" % (string.ascii_letters, string.digits)
         text = re.sub('\s', '_', text)
         return ''.join(c for c in text if c in vchar)
-
 
     def user_confirm(self, prompt):
         """Get user confirmation
@@ -474,7 +491,6 @@ class PlayFetch:
         yes = input('%s. Continue? (y/n) [y]: ' % prompt)
         debug('val: %s' % yes)
         return yes.lower() in ('', "yes", "y", "true", "t", "1", "on")
-
 
     def fetch_playlist(self, results, filename):
         """Fetch playlist
@@ -491,7 +507,7 @@ class PlayFetch:
 
         # Make sure we got results or bail
         if not results.status_code == 200:
-            error('Request failed: %s' % results.status_code) 
+            error('Request failed: %s' % results.status_code)
             return False
 
         # Check if playlist exists and prompt to overwrite
@@ -508,7 +524,6 @@ class PlayFetch:
                 fd.write(chunk)
             info('Fetch: ' + path.basename(filename))
             return True
-
 
     def fetch_batch(self, results, prefix, command):
         """Parse text and fetch playlists
@@ -530,7 +545,6 @@ class PlayFetch:
 
                 subreq = requests.get(url)
                 self.fetch_playlist(subreq, filename)
-
 
     def fetch_albums(self, results, prefix, command, artist):
         """Fetch artist discography
@@ -555,10 +569,6 @@ class PlayFetch:
                 subreq = requests.get(url)
                 self.fetch_playlist(subreq, filename)
 
-
-################################################################################
-
-
     def mpd_init(self):
         """Setup MPD connection
         """
@@ -569,14 +579,12 @@ class PlayFetch:
         self.client = MPDClient()
         self.client.connect(host, port)
 
-
     def mpd_end(self):
         """End MPD connection
         """
 
         self.client.close()
         self.client.disconnect()
-
 
     def mpd_auto(self, playlist=None):
         """Clear, load, and play with MPD after fetching playlist
@@ -613,7 +621,6 @@ class PlayFetch:
             info("Starting...")
 
         self.mpd_end()
-
 
     def mpd_playlist(self):
         """Print current MPD playlist
@@ -672,7 +679,6 @@ class PlayFetch:
 
         self.mpd_end()
 
-
     def mpd_status(self):
         """Print status like 'mpc status'
         """
@@ -712,32 +718,35 @@ class PlayFetch:
         if 'repeat' in info:
             if info['repeat'] == 1:
                 _repeat = "on"
-            else: _repeat = "off"
+            else:
+                _repeat = "off"
             line3.append("Repeat: {}  ".format(_repeat))
 
         if 'random' in info:
             if info['random'] == 1:
                 _round = "on"
-            else: _round = "off"
+            else:
+                _round = "off"
             line3.append("Random: {}  ".format(_round))
 
         if 'single' in info:
             if info['single'] == 1:
                 _single = "on"
-            else: _single = "off"
+            else:
+                _single = "off"
             line3.append("Single: {}  ".format(_single))
 
         if 'consume' in info:
             if info['consume'] == 1:
                 _consume = "on"
-            else: _consume = "off"
+            else:
+                _consume = "off"
             line3.append("Consume: {}  ".format(_consume))
 
         for line in (line1, line2, line3):
-            print("".join(map(str,line)))
+            print("".join(map(str, line)))
 
         self.mpd_end()
-
 
     def mpd_skip(self):
         """Skip track, for rank --down
@@ -747,7 +756,6 @@ class PlayFetch:
         self.client.next()
         self.mpd_end()
         info("Skipping...")
-
 
     def mpd_listplaylists(self):
         """Get MPDClient.listplaylists()
@@ -759,14 +767,12 @@ class PlayFetch:
 
         return plist_data
 
-
     def _time_fmt(self, seconds):
         """Time for humans
         """
 
         dtime = round(float(seconds))
         return datetime.strftime(datetime.utcfromtimestamp(dtime), "%M:%S")
-
 
     def _cur_id(self):
         """Get MPD playlist ID for current song
@@ -776,7 +782,6 @@ class PlayFetch:
             return self.client.currentsong()['id']
         except:
             pass
-
 
     def _cur_song(self):
         """Get 'Artist - Title' for current song
@@ -790,7 +795,6 @@ class PlayFetch:
 
         return name
 
-
     def _cur_playid(self):
         """Get Play ID for current song
         """
@@ -802,13 +806,11 @@ class PlayFetch:
 
         return playid
 
-
     """Subcommands
 
     Args:
         args (dict): Command line arguments
     """
-
 
     def cmd_search(self, args):
         """Fetch playlist of search results
@@ -821,7 +823,7 @@ class PlayFetch:
                 'title': None,
                 'artist': None,
                 'exact': 'no',
-                'num_tracks': '20' }
+                'num_tracks': '20'}
 
         debug('args: %s' % args)
         # Process search string
@@ -876,7 +878,6 @@ class PlayFetch:
                 # Post-fetch commands
                 self.mpd_auto(filename)
 
-
     def cmd_radio(self, args):
         """Fetch new station from search
         """
@@ -889,8 +890,9 @@ class PlayFetch:
                 'artist': None,
                 'exact': 'no',
                 'num_tracks': '20',
+                'type': 'artist',
                 'transient': 'yes',
-                'name': None }
+                'name': None}
 
         debug('args: %s' % args)
 
@@ -947,7 +949,6 @@ class PlayFetch:
                 # Post-fetch commands
                 self.mpd_auto(filename)
 
-
     def cmd_collection(self, args):
         """Fetch collection playlist
         """
@@ -956,7 +957,7 @@ class PlayFetch:
         url_cmd = "/get_collection"
         url_opts = {
                 'shuffle': 'yes',
-                'rating': 2 }
+                'rating': 2}
 
         # Process --rating
         if args.rating:
@@ -964,7 +965,7 @@ class PlayFetch:
             url_opts['rating'] = args.rating
 
         # Process --shoff
-        if args.shoff == True:
+        if args.shoff:
             debug('shoff: %s' % args.shoff)
             url_opts['shuffle'] = False
 
@@ -989,14 +990,13 @@ class PlayFetch:
                 # Post-fetch commands
                 self.mpd_auto(filename)
 
-
     def cmd_lucky(self, args):
         """Fetch I'm Feeling Lucky playlist
         """
 
         url_name = 'lucky'
         url_cmd = '/get_ifl_station'
-        url_opts = { 'num_tracks': 20 }
+        url_opts = {'num_tracks': 20}
 
         # Process --tracks
         if args.tracks:
@@ -1024,7 +1024,6 @@ class PlayFetch:
                 # Post-fetch commands
                 self.mpd_auto(filename)
 
-
     def cmd_discog(self, args):
         """Fetch artist discography
         """
@@ -1033,13 +1032,13 @@ class PlayFetch:
         search_opts = {
                 'type': 'artist',
                 'artist': None,
-                'exact': 'no' }
+                'exact': 'no'}
 
         url_name = 'albums'
         url_cmd = '/get_discography_artist'
         url_opts = {
                 'id': None,
-                'format': 'text' }
+                'format': 'text'}
 
         debug('args: %s' % args)
         # Process search string
@@ -1058,7 +1057,7 @@ class PlayFetch:
 
         proxy_url = self.config['proxy-url']
         prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
+#        dest = self.config['plist-dest']
 
         # Build search URL
         search_url = proxy_url + search_cmd
@@ -1079,7 +1078,65 @@ class PlayFetch:
         else:
             error('unexpected error')
 
+    def cmd_toptracks(self, args):
 
+        search_cmd = '/search_id'
+        search_opts = {
+                'type': 'artist',
+                'artist': None,
+                'exact': 'no'}
+
+        url_name = 'toptracks'
+        url_cmd = '/get_top_tracks_artist'
+        url_opts = {
+                'id': None,
+                'type': 'artist',
+                'num_tracks': '20'}
+
+        debug('args: %s' % args)
+        # Process search string
+        if args.search_string:
+            debug("search_string: %s" % args.search_string)
+            artist = args.search_string
+            search_opts['artist'] = artist
+        else:
+            error("needs artist")
+            return
+
+        # Process --tracks
+        if args.tracks:
+            debug('tracks: %s' % args.tracks)
+            url_opts['num_tracks'] = int(args.tracks)
+
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
+
+        # Build search URL
+        search_url = proxy_url + search_cmd
+        search_req = requests.get(search_url, params=search_opts)
+        debug('search_req.url: %s' % search_req.url)
+
+        if search_req.status_code == 200:
+            url_opts['id'] = search_req.text
+
+            # Build request url
+            url_base = proxy_url + url_cmd
+            request = requests.get(url_base, params=url_opts)
+            debug('url_base: %s' % request)
+            debug('request.url: %s' % request.url)
+
+            # Get playlist name
+            filename = self._get_filename(prefix, url_name, artist, title=None)
+            playlist = path.join(dest, filename)
+
+            # Fetch playlist
+            if request and playlist:
+                debug('request: %s' % request)
+                debug('playlist: %s' % playlist)
+                if self.fetch_playlist(request, playlist):
+                    # Post-fetch commands
+                    self.mpd_auto(filename)
 
     def cmd_stations(self, args):
         """Fetch all registered station playlists
@@ -1087,11 +1144,11 @@ class PlayFetch:
 
         url_name = 'stations'
         url_cmd = '/get_all_stations'
-        url_opts = { 'format': 'text' }
+        url_opts = {'format': 'text'}
 
         proxy_url = self.config['proxy-url']
         prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
+#        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1101,7 +1158,6 @@ class PlayFetch:
         # Read data and fetch playlists
         if self.fetch_batch(request, prefix, url_name):
             info("Stations fetched!")
-
 
     def cmd_playlists(self, args):
         """Fetch all user created playlists
@@ -1109,11 +1165,11 @@ class PlayFetch:
 
         url_name = 'playlists'
         url_cmd = '/get_all_playlists'
-        url_opts = { 'format': 'text' }
+        url_opts = {'format': 'text'}
 
         proxy_url = self.config['proxy-url']
         prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
+#        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1123,7 +1179,6 @@ class PlayFetch:
         # Read data and fetch playlists
         if self.fetch_batch(request, prefix, url_name):
             info("Stations fetched!")
-
 
     def cmd_show(self, args):
         """Print current MPD playlist
@@ -1147,7 +1202,6 @@ class PlayFetch:
             if plist:
                 print(u'\u2500'*80)
             self.mpd_status()
-
 
     def cmd_list(self, args):
         """List playlists
@@ -1175,7 +1229,6 @@ class PlayFetch:
         for plist in to_list:
             info(plist)
 
-
     def cmd_rank(self, args):
         """Rank song currently playing in MPD
         """
@@ -1183,8 +1236,8 @@ class PlayFetch:
         playid = self._cur_playid()
         debug('playid: %s' % playid)
 
-        url_opts = { 'id': playid }
-               
+        url_opts = {'id': playid}
+
         if self.args.up:
             url_cmd = '/like_song'
             success = 'Thumbs up!'
@@ -1204,7 +1257,6 @@ class PlayFetch:
             info(success)
             if skip:
                 self.mpd_skip()
-
 
     def cmd_purge(self, args):
         """Delete playlists
