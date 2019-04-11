@@ -140,6 +140,8 @@ class PlayFetch:
                 self.cmd_radio(self.args)
             elif self.args.subparser == 'collection':
                 self.cmd_collection(self.args)
+            elif self.args.subparser == 'promoted':
+                self.cmd_promoted(self.args)
             elif self.args.subparser == 'lucky':
                 self.cmd_lucky(self.args)
             elif self.args.subparser == 'stations':
@@ -282,6 +284,17 @@ class PlayFetch:
                 help="Minimum track rating")
         # disable shuffle
         parser_collection.add_argument(
+                '--shoff',
+                action='store_true',
+                help="Do not shuffle playlist")
+
+        # promoted subcommand
+        parser_promoted = subparsers.add_parser(
+                'promoted',
+                description="Fetch promoted tracks playlist",
+                usage="playfetch [-fcls] promoted")
+        # disable shuffle
+        parser_promoted.add_argument(
                 '--shoff',
                 action='store_true',
                 help="Do not shuffle playlist")
@@ -963,6 +976,40 @@ class PlayFetch:
         if args.rating:
             debug('rating: %s' % args.rating)
             url_opts['rating'] = args.rating
+
+        # Process --shoff
+        if args.shoff:
+            debug('shoff: %s' % args.shoff)
+            url_opts['shuffle'] = False
+
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = self._get_filename(prefix, url_name, artist=None, title=None)
+        playlist = path.join(dest, filename)
+
+        # Fetch playlist
+        if request and playlist:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            if self.fetch_playlist(request, playlist):
+                # Post-fetch commands
+                self.mpd_auto(filename)
+
+    def cmd_promoted(self, args):
+        """Fetch promoted tracks playlist
+        """
+
+        url_name = "promoted"
+        url_cmd = "/get_promoted"
+        url_opts = {'shuffle': 'yes'}
 
         # Process --shoff
         if args.shoff:
