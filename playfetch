@@ -6,6 +6,9 @@
 # Fetch new station playlist:
 #   playfetch [-fcls] radio 'artist, title' --name 'station' --tracks <num> --exact
 #
+# Fetch new station playlist from current song:
+#   playfetch [-fcls] current --tracks <num>
+#
 # Fetch playlist of search results:
 #   playfetch [-fcls] search 'artist, title' --tracks <num> --album --exact
 #
@@ -138,6 +141,8 @@ class PlayFetch:
                 self.cmd_search(self.args)
             elif self.args.subparser == 'radio':
                 self.cmd_radio(self.args)
+            elif self.args.subparser == 'current':
+                self.cmd_current(self.args)
             elif self.args.subparser == 'collection':
                 self.cmd_collection(self.args)
             elif self.args.subparser == 'promoted':
@@ -254,11 +259,23 @@ class PlayFetch:
                 action='store_true',
                 help="Exact match only")
 
+        # current subcommand
+        parser_current = subparsers.add_parser(
+                'current',
+                description="Fetch new station playlist based on current song",
+                usage="playfetch [-fcls] radio <string> -n <name> -t <num> -e")
+        # num tracks
+        parser_current.add_argument(
+                '-t', '--tracks',
+                action='store',
+                type=int,
+                help="Number of tracks to return")
+
         # top subcommand
         parser_top = subparsers.add_parser(
                 'top',
-                description="Fetch Top Tracks playlist",
-                usage="playfetch [-fcls] top <string> -t <num> -e")
+                description="Fetch an Artist's Top Tracks playlist",
+                usage="playfetch [-fcls] top <string> -t <num>")
         # search string
         parser_top.add_argument(
                 'search_string',
@@ -291,7 +308,7 @@ class PlayFetch:
         # promoted subcommand
         parser_promoted = subparsers.add_parser(
                 'promoted',
-                description="Fetch promoted tracks playlist",
+                description="Fetch Promoted Tracks playlist",
                 usage="playfetch [-fcls] promoted")
         # disable shuffle
         parser_promoted.add_argument(
@@ -435,7 +452,7 @@ class PlayFetch:
                     config[key] = user_conf.get(__APP_NAME__, key)
                 debug('user config: %s' % config)
                 self.config = config
-            except:
+            except Exception:
                 error("Invalid config: %s" % filename)
 
     def _get_filename(self, prefix=None, command=None, artist=None, title=None):
@@ -599,7 +616,7 @@ class PlayFetch:
         self.client.close()
         self.client.disconnect()
 
-    def mpd_auto(self, playlist=None):
+    def mpd_ctrl(self, playlist=None):
         """Clear, load, and play with MPD after fetching playlist
 
         Args:
@@ -612,7 +629,7 @@ class PlayFetch:
         # start without clear
         try:
             snum = len(self.client.playlistinfo())
-        except:
+        except Exception:
             snum = 0
         debug("snum: %s" % snum)
 
@@ -793,7 +810,7 @@ class PlayFetch:
 
         try:
             return self.client.currentsong()['id']
-        except:
+        except Exception:
             pass
 
     def _cur_song(self):
@@ -803,7 +820,7 @@ class PlayFetch:
         try:
             song = self.client.currentsong()
             name = "{} - {}".format(song['artist'], song['title'])
-        except:
+        except Exception:
             name = "(not playing)"
 
         return name
@@ -889,7 +906,7 @@ class PlayFetch:
             debug('playlist: %s' % playlist)
             if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
-                self.mpd_auto(filename)
+                self.mpd_ctrl(filename)
 
     def cmd_radio(self, args):
         """Fetch new station from search
@@ -960,7 +977,50 @@ class PlayFetch:
             debug('playlist: %s' % playlist)
             if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
-                self.mpd_auto(filename)
+                self.mpd_ctrl(filename)
+
+    def cmd_current(self, args):
+        """Fetch new station from current song
+        """
+
+        playid = self._cur_playid()
+
+        url_name = "current"
+        url_cmd = "/get_new_station_by_id"
+        url_opts = {
+                'id': playid,
+                'num_tracks': '20',
+                'type': 'song',
+                'transient': 'yes',
+                'name': None}
+
+        debug('args: %s' % args)
+
+        # Process --tracks
+        if args.tracks:
+            debug('tracks: %s' % args.tracks)
+            url_opts['num_tracks'] = args.tracks
+
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+        dest = self.config['plist-dest']
+
+        # Build request URL
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = self._get_filename(prefix, url_name)
+        playlist = path.join(dest, filename)
+
+        # Fetch playlist
+        if request and playlist:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            if self.fetch_playlist(request, playlist):
+                # Post-fetch commands
+                self.mpd_ctrl(filename)
 
     def cmd_collection(self, args):
         """Fetch collection playlist
@@ -1001,7 +1061,7 @@ class PlayFetch:
             debug('playlist: %s' % playlist)
             if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
-                self.mpd_auto(filename)
+                self.mpd_ctrl(filename)
 
     def cmd_promoted(self, args):
         """Fetch promoted tracks playlist
@@ -1035,7 +1095,7 @@ class PlayFetch:
             debug('playlist: %s' % playlist)
             if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
-                self.mpd_auto(filename)
+                self.mpd_ctrl(filename)
 
     def cmd_lucky(self, args):
         """Fetch I'm Feeling Lucky playlist
@@ -1069,7 +1129,7 @@ class PlayFetch:
             debug('playlist: %s' % playlist)
             if self.fetch_playlist(request, playlist):
                 # Post-fetch commands
-                self.mpd_auto(filename)
+                self.mpd_ctrl(filename)
 
     def cmd_discog(self, args):
         """Fetch artist discography
@@ -1183,7 +1243,7 @@ class PlayFetch:
                 debug('playlist: %s' % playlist)
                 if self.fetch_playlist(request, playlist):
                     # Post-fetch commands
-                    self.mpd_auto(filename)
+                    self.mpd_ctrl(filename)
 
     def cmd_stations(self, args):
         """Fetch all registered station playlists

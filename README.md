@@ -9,6 +9,9 @@ python-mpd
 Fetch new station playlist:  
   `playfetch [-fcls] radio 'artist, title' --name 'station' --tracks <num> --exact`  
   
+Fetch new station playlist from current song:  
+  `playfetch [-fcls] current --tracks <num>`  
+  
 Fetch playlist of search results:  
   `playfetch [-fcls] search 'artist, title' --tracks <num> --album --exact`  
   

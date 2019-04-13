@@ -1,4 +1,3 @@
-- Fix purge() --older filter
 - Add purge() --newer filter
 - Make purge() --all work with others
 - See if its possible to get Recently Added playlists
