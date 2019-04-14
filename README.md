@@ -6,32 +6,35 @@ python-requests
 python-mpd
   
 #### Usage
-Fetch new station playlist:  
+Fetch playlist of search results:  
+  `playfetch [-fcls] search 'artist, title' --tracks <num> --album --exact`  
+  
+Fetch new station playlist from search:  
   `playfetch [-fcls] radio 'artist, title' --name 'station' --tracks <num> --exact`  
   
 Fetch new station playlist from current song:  
   `playfetch [-fcls] current --tracks <num>`  
   
-Fetch playlist of search results:  
-  `playfetch [-fcls] search 'artist, title' --tracks <num> --album --exact`  
-  
-Fetch collection playlist:  
-  `playfetch [-fcls] collection --rating <rating> --shoff`  
+Fetch Promoted Tracks playlist:  
+  `playfetch [-fcls] promoted --shoff`  
   
 Fetch I'm Feeling Lucky playlist:  
   `playfetch [-fcls] lucky --tracks <num>`  
   
-Fetch artist top tracks:  
+Fetch an artist's Top Tracks playlist:  
   `playfetch [-fcls] top 'artist' --tracks <num>`  
   
-Fetch all station playlists:  
+Fetch an artist's complete discography:  
+  `playfetch [-f] discog 'artist' --exact`  
+  
+Fetch user collection playlist:  
+  `playfetch [-fcls] collection --rating <rating> --shoff`  
+  
+Fetch all user station playlists:  
   `playfetch [-f] stations`  
   
 Fetch all user playlists:  
   `playfetch [-f] playlists`  
-  
-Fetch artist discography:  
-  `playfetch [-f] discog 'artist' --exact`  
   
 Rank current track:  
   `playfetch rank --up|--down`  
