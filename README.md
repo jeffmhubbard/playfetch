@@ -21,6 +21,9 @@ Fetch Promoted Tracks playlist:
 Fetch I'm Feeling Lucky playlist:  
   `playfetch [-fcls] lucky --tracks <num>`  
   
+Fetch Listen Now playlists:  
+  `playfetch [-f] listen --artist|--album|--situation|--all`  
+  
 Fetch an artist's Top Tracks playlist:  
   `playfetch [-fcls] top 'artist' --tracks <num>`  
   
