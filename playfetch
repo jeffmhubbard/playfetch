@@ -343,17 +343,17 @@ class PlayFetch:
                 usage="playfetch [-f] listen --all")
         # listen artist
         parser_listen.add_argument(
-                '--artist',
+                '-r', '--artist',
                 action='store_true',
                 help="Listen Now artist station playlists")
         # listen album
         parser_listen.add_argument(
-                '--album',
+                '-a', '--album',
                 action='store_true',
                 help="Listen Now suggested album playlists")
         # listen situation
         parser_listen.add_argument(
-                '--situation',
+                '-s', '--situation',
                 action='store_true',
                 help="Listen Now situation playlists")
         # listen all
