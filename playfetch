@@ -151,6 +151,8 @@ class PlayFetch:
                 self.cmd_lucky(self.args)
             elif self.args.subparser == 'stations':
                 self.cmd_stations(self.args)
+            elif self.args.subparser == 'listen':
+                self.cmd_listen(self.args)
             elif self.args.subparser == 'playlists':
                 self.cmd_playlists(self.args)
             elif self.args.subparser == 'discog':
@@ -333,6 +335,32 @@ class PlayFetch:
                 'stations',
                 description="Fetch all registered stations",
                 usage="playfetch [-f] stations")
+
+        # listen subcommand
+        parser_listen = subparsers.add_parser(
+                'listen',
+                description="Fetch Listen Now stations",
+                usage="playfetch [-f] listen --all")
+        # listen artist
+        parser_listen.add_argument(
+                '--artist',
+                action='store_true',
+                help="Listen Now artist station playlists")
+        # listen album
+        parser_listen.add_argument(
+                '--album',
+                action='store_true',
+                help="Listen Now suggested album playlists")
+        # listen situation
+        parser_listen.add_argument(
+                '--situation',
+                action='store_true',
+                help="Listen Now situation playlists")
+        # listen all
+        parser_listen.add_argument(
+                '--all',
+                action='store_true',
+                help="Fetch all Listen Now playlists")
 
         # playlists subcommand
         parser_playlists = subparsers.add_parser(
@@ -568,7 +596,8 @@ class PlayFetch:
             if len(line) > 0:
 
                 name, url = line.split('|')
-
+                if command == 'listen':
+                    junk, name = name.split(' - ')
                 filename = path.join(
                         self.config['plist-dest'],
                         self._get_filename(prefix, command, name))
@@ -1255,7 +1284,6 @@ class PlayFetch:
 
         proxy_url = self.config['proxy-url']
         prefix = self.config['plist-prefix']
-#        dest = self.config['plist-dest']
 
         # Build request url
         url_base = proxy_url + url_cmd
@@ -1265,6 +1293,90 @@ class PlayFetch:
         # Read data and fetch playlists
         if self.fetch_batch(request, prefix, url_name):
             info("Stations fetched!")
+
+    def cmd_listen(self, args):
+        """Fetch Listen Now playlists
+        """
+
+        if args.all:
+            args.artist = True
+            args.album = True
+            args.situation = True
+
+        if args.situation:
+            self._listen_situation()
+
+        if args.artist:
+            self._listen_artist()
+
+        if args.album:
+            self._listen_album()
+
+    def _listen_artist(self):
+        """Fetch all Listen Now station playlists
+        """
+
+        url_name = 'listen'
+        url_cmd = '/get_listen_now'
+        url_opts = {
+                'type': 'artist',
+                'format': 'text',
+                }
+
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        if self.fetch_batch(request, prefix, url_name):
+            info("Listen Now artist stations fetched!")
+
+    def _listen_album(self):
+        """Fetch Listen Now suggested album playlists
+        """
+
+        url_name = 'listen'
+        url_cmd = '/get_listen_now'
+        url_opts = {
+                'type': 'album',
+                'format': 'text',
+                }
+
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        if self.fetch_batch(request, prefix, url_name):
+            info("Listen Now suggested albums fetched!")
+
+    def _listen_situation(self):
+        """Fetch Listen Now situation playlists
+        """
+
+        url_name = 'listen'
+        url_cmd = '/get_situations'
+        url_opts = {'format': 'text'}
+
+        proxy_url = self.config['proxy-url']
+        prefix = self.config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        if self.fetch_batch(request, prefix, url_name):
+            info("Listen Now situation playlists fetched!")
 
     def cmd_playlists(self, args):
         """Fetch all user created playlists
