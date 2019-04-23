@@ -39,8 +39,8 @@ Fetch all user station playlists:
 Fetch all user playlists:  
   `playfetch [-f] playlists`  
   
-Rank current track:  
-  `playfetch rank --up|--down`  
+rate current track:  
+  `playfetch rate --up|--down`  
   
 Print current MPD playlist:  
   `playfetch show --status`  

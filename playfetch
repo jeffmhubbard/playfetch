@@ -165,8 +165,8 @@ class PlayFetch:
                 self.cmd_list(self.args)
             elif self.args.subparser == 'purge':
                 self.cmd_purge(self.args)
-            elif self.args.subparser == 'rank':
-                self.cmd_rank(self.args)
+            elif self.args.subparser == 'rate':
+                self.cmd_rate(self.args)
 
         except Exception as e:
             sys.exit(e)
@@ -443,18 +443,18 @@ class PlayFetch:
                 type=int,
                 help="Number of hours")
 
-        # rank current song
-        parser_rank = subparsers.add_parser(
-                'rank',
-                description="Rank song currently playing in MPD",
-                usage="playfetch rank --[up/down]")
+        # rate current song
+        parser_rate = subparsers.add_parser(
+                'rate',
+                description="rate song currently playing in MPD",
+                usage="playfetch rate --[up/down]")
         # thumbs up
-        parser_rank.add_argument(
+        parser_rate.add_argument(
                 '-u', '--up',
                 action='store_true',
                 help="Thumbs up")
         # thumbs down
-        parser_rank.add_argument(
+        parser_rate.add_argument(
                 '-d', '--down',
                 action='store_true',
                 help="Thumbs down")
@@ -808,7 +808,7 @@ class PlayFetch:
         self.mpd_end()
 
     def mpd_skip(self):
-        """Skip track, for rank --down
+        """Skip track, for rate --down
         """
 
         self.mpd_init()
@@ -1448,8 +1448,8 @@ class PlayFetch:
         for plist in to_list:
             info(plist)
 
-    def cmd_rank(self, args):
-        """Rank song currently playing in MPD
+    def cmd_rate(self, args):
+        """Rate song currently playing in MPD
         """
 
         playid = self._cur_playid()
