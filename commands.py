@@ -3,7 +3,7 @@ import requests
 import time
 from os import path
 
-import client as mpc
+import mpc
 from shell import prompt
 from utils import info, warn, error, debug
 from utils import (
@@ -127,6 +127,55 @@ def top(config, args):
                 mpc.ctrl(client, config, filename)
 
     mpc.end(client)
+
+
+def discog(config, args):
+
+    search_cmd = '/search_id'
+    search_opts = {
+            'type': 'artist',
+            'artist': None,
+            'exact': 'no'}
+
+    url_name = 'albums'
+    url_cmd = '/get_discography_artist'
+    url_opts = {
+            'id': None,
+            'format': 'text'}
+
+    debug('args: %s' % args)
+    if args.search_string:
+        debug("search_string: %s" % args.search_string)
+        artist = args.search_string
+        search_opts['artist'] = artist
+    else:
+        error("needs artist")
+        return
+
+    if args.exact:
+        debug('exact: %s' % args.exact)
+        search_opts['exact'] = 'yes'
+
+    proxy_url = config['proxy-url']
+    prefix = config['plist-prefix']
+
+    search_url = proxy_url + search_cmd
+    search_req = requests.get(search_url, params=search_opts)
+    debug('search_req.url: %s' % search_req.url)
+
+    if search_req.status_code == 200:
+        url_opts['id'] = search_req.text
+
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        try:
+            fetch_albums(config, request, prefix, url_name, artist, args)
+        except Exception as e:
+            error(e)
+    else:
+        error('unexpected error')
 
 
 def playlists(config, args):
@@ -468,7 +517,7 @@ def purge(config, args):
     if args.older:
         older = int(args.older)
 
-    plist_data = mpc.listplaylists(client)
+    plist_data = mpc.list_playlists(client)
 
     to_delete = []
 

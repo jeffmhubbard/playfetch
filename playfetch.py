@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+#
+# PlayFetch - Fetch playlists from GMusicProxy
+# https://github.com/jeffmhubbard/playfetch
+#
 
 import argparse
 import configparser

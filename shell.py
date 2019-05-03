@@ -164,6 +164,17 @@ def get_args(command):
             '--shoff',
             action='store_true')
 
+    parser_discog = subparsers.add_parser(
+            'discog',
+            parents=[main_parser],
+            add_help=False)
+    parser_discog.add_argument(
+            'search_string',
+            action='store')
+    parser_discog.add_argument(
+            '-e', '--exact',
+            action='store_true')
+
     parser_lucky = subparsers.add_parser(
             'lucky',
             parents=[main_parser, post_parser],
@@ -207,13 +218,6 @@ def get_args(command):
             parents=[main_parser],
             add_help=False)
 
-    parser_list = subparsers.add_parser(
-            'list',
-            add_help=False)
-    parser_list.add_argument(
-            '-a', '--all',
-            action='store_true')
-
     parser_show = subparsers.add_parser(
             'show',
             add_help=False)
@@ -222,6 +226,13 @@ def get_args(command):
             action='store_true')
     parser_show.add_argument(
             '-b', '--both',
+            action='store_true')
+
+    parser_list = subparsers.add_parser(
+            'list',
+            add_help=False)
+    parser_list.add_argument(
+            '-a', '--all',
             action='store_true')
 
     parser_rate = subparsers.add_parser(
@@ -234,37 +245,26 @@ def get_args(command):
             '-d', '--down',
             action='store_true')
 
-    # purge playlists in path
     parser_purge = subparsers.add_parser(
             'purge',
-            description="Delete playlists with matching prefix",
-            usage="playfetch [-f] purge --[filter]")
-    # filter searches
+            parents=[main_parser],
+            add_help=False)
     parser_purge.add_argument(
             '--search',
-            action='store_true',
-            help="Filter search playlists")
-    # filter radio
+            action='store_true')
     parser_purge.add_argument(
             '--radio',
-            action='store_true',
-            help="Filter radio playlists")
-    # purge all
+            action='store_true')
     parser_purge.add_argument(
             '--station',
-            action='store_true',
-            help="Filter station playlists")
-    # purge all
+            action='store_true')
     parser_purge.add_argument(
             '--all',
-            action='store_true',
-            help="Delete *ALL* playlists")
-    # older than
+            action='store_true')
     parser_purge.add_argument(
             '-o', '--older',
             action='store',
-            type=int,
-            help="Number of hours")
+            type=int)
 
     return parser.parse_args(shlex.split(command, posix=True))
 
