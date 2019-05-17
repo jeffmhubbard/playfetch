@@ -1,51 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# PlayFetch - Fetch playlists from GMusicProxy
-#
-# Fetch new station playlist:
-#   playfetch [-fcls] radio 'artist, title' --name 'station' --tracks <num> --exact
-#
-# Fetch new station playlist from current song:
-#   playfetch [-fcls] current --tracks <num>
-#
-# Fetch playlist of search results:
-#   playfetch [-fcls] search 'artist, title' --tracks <num> --album --exact
-#
-# Fetch playlist of entire collection:
-#   playfetch [-fcls] collection --rating <rating> --shoff
-#
-# Fetch I'm Feeling Lucky playlist:
-#   playfetch [-fcls] lucky --tracks <num>
-#
-# Fetch artist discography:
-#   playfetch [-f] discog 'artist' --exact
-#
-# Fetch all station playlists:
-#   playfetch [-f] stations
-#
-# Fetch all user playlists:
-#   playfetch [-f] playlists
-#
-# Print current MPD playlist:
-#   playfetch show --status
-#
-# List playlists:
-#   playfetch list --all
-#
-# Delete playlists:
-#   playfetch [-f] purge --[filter]
-#
-# Options:
-#   -f, --force : Don't prompt for confirmation
-#   -c, --clear : Clear current MPD playlist
-#   -l, --load  : Append to current MPD playlist
-#   -s, --start : Play current MPD playlist
-#   -d, --debug : Print debug messages
-#
-
 import os
 import re
+import shlex
 import sys
 import time
 import argparse
@@ -57,8 +15,18 @@ from os import path
 import requests
 from mpd import MPDClient
 
+from prompt_toolkit.completion import (
+        FuzzyWordCompleter,
+        merge_completers,
+        )
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.shortcuts import PromptSession, prompt
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+
+
 __APP_NAME__ = "playfetch"
 __APP_DESC__ = "Fetch playlists from GMusicProxy"
+__APP_VER__ = "v0.1"
 
 __APP_DIRS__ = {
         'cache': path.expanduser('~/.cache/'+__APP_NAME__),
@@ -106,9 +74,1175 @@ def debug(msg):
         print("DEBUG: " + msg)
 
 
-class PlayFetch:
+def load_config(default=None):
+    """Load configuration from user config
+    """
 
-    config = DEFAULTS
+    if default:
+        config = default
+    else:
+        config = {}
+
+    # Override from user config
+    filename = path.join(__APP_DIRS__['config'], 'config')
+    if path.exists(filename):
+        debug('user config found: %s' % filename)
+        user_conf = configparser.ConfigParser(config)
+        user_conf.read(filename)
+
+        # All keys are required for config to be valid
+        try:
+            for key in config.keys():
+                config[key] = user_conf.get(__APP_NAME__, key)
+            debug('user config: %s' % config)
+            return config
+        except Exception:
+            error("Invalid config: %s" % filename)
+
+
+def time_format(seconds):
+    """Time for humans
+    """
+
+    dtime = round(float(seconds))
+    return datetime.strftime(datetime.utcfromtimestamp(dtime), "%M:%S")
+
+
+def get_valid_str(text):
+    """Get valid strings for filenames
+
+    Args:
+        text (str): String to make valid
+
+    Returns:
+        Return string containing valid file path characters
+    """
+
+    vchar = "-_.()[] %s%s" % (string.ascii_letters, string.digits)
+    text = re.sub(' ', '_', text)
+    return ''.join(c for c in text if c in vchar)
+
+
+def get_filename(prefix=None, command=None, artist=None, title=None):
+    """Get filename with extension for new playlist
+
+    Args:
+        prefix (str): String containing playlist prefix
+        command (str): String containing subcommand
+        artist (str): String containing artist
+        title (str): String containing title
+
+        All args are optional, but at least one is required
+
+    Returns:
+        Return file name with extension or False
+    """
+
+    str_list = []
+    ext = ".m3u"
+
+    if prefix:
+        str_list.append(get_valid_str(prefix))
+
+    if command:
+        str_list.append(get_valid_str(command))
+
+    if artist:
+        str_list.append(get_valid_str(artist))
+
+    if title:
+        str_list.append(get_valid_str(title))
+
+    if len(str_list) > 0:
+        filename = '-'.join(str_list)
+        filename += ext
+        debug("filename: %s" % filename.lower())
+        return filename.lower()
+
+    else:
+        return False
+
+
+def fetch_playlist(config, results, filename, args):
+    """Fetch playlist
+
+    Args:
+        results (obj): Requests.request data
+        filename (str): Filename to write playlist to
+
+    Returns:
+        Return True if playlist written, False otherwise
+    """
+
+    filename = path.expanduser(filename)
+
+    # Make sure we got results or bail
+    if not results.status_code == 200:
+        error('Request failed: %s' % results.status_code)
+        return False
+
+    # Check if playlist exists and prompt to overwrite
+    if path.exists(filename):
+        debug('force: %s' % args.force)
+        if not args.force:
+            if not user_confirm('File exists: %s' % path.basename(filename)):
+                warn('User aborted!')
+                return False
+
+    # Write playlist from results data
+    with open(filename, 'wb') as fd:
+        for chunk in results.iter_content(chunk_size=128):
+            fd.write(chunk)
+        info('Fetch: ' + path.basename(filename))
+        return True
+
+
+def fetch_batch(config, results, prefix, command, args):
+    """Parse text and fetch playlists
+
+    Args:
+        results (obj): Requests.request data
+        prefix (str): String containing playlist prefix
+        command (str): String containing subcommand
+    """
+
+    for line in results.text.splitlines():
+        if len(line) > 0:
+
+            name, url = line.split('|')
+            if command == 'listen':
+                junk, name = name.split(' - ')
+            filename = path.join(
+                    config['plist-dest'],
+                    get_filename(prefix, command, name))
+
+            subreq = requests.get(url)
+            fetch_playlist(config, subreq, filename, args)
+
+
+def fetch_albums(config, results, prefix, command, artist, args):
+    """Fetch artist discography
+
+    Args:
+        results (obj): Requests.request data
+        prefix (str): String containing playlist prefix
+        command (str): String containing subcommand
+        artist (str): String containing artist
+    """
+
+    for line in results.text.splitlines():
+        if len(line) > 0:
+
+            title, year, url = line.split('|')
+            album = artist+'-'+year+'-'+title
+
+            filename = path.join(
+                    config['plist-dest'],
+                    get_filename(prefix, command, album))
+
+            subreq = requests.get(url)
+            fetch_playlist(config, subreq, filename, args)
+
+
+def user_confirm(question):
+    """Get user confirmation
+
+    Args:
+        question (str): Question to prompt user with
+
+    Returns:
+        Return True is user selects one of many choices (or enter)
+    """
+
+    yes = prompt('%s. Continue? (y/n) [y]: ' % question)
+    debug('val: %s' % yes)
+    return yes.lower() in ('', "yes", "y", "true", "t", "1", "on")
+
+
+class Commands:
+
+    def shell(self, config, args):
+        """Start interactive shell
+        """
+
+        debug('config: %s' % config)
+        debug('args: %s' % args)
+        try:
+            PfShell(config, args)
+        except Exception as e:
+            error(e)
+
+    def search(self, config, args):
+        """Fetch playlist of search results
+        """
+
+        url_name = 'search'
+        url_cmd = '/get_by_search'
+        url_opts = {
+                'type': 'matches',
+                'title': None,
+                'artist': None,
+                'exact': 'no',
+                'num_tracks': '20'}
+
+        debug('args: %s' % args)
+        # Process search string
+        if args.search_string:
+            debug("search_string: %s" % args.search_string)
+            search = tuple(args.search_string.split(','))
+
+            artist = search[0].rstrip(',')
+            url_opts['artist'] = artist
+            debug('artist: %s' % artist)
+
+            if len(search) >= 2:
+                title = search[1].strip()
+                url_opts['title'] = title
+            else:
+                title = None
+            debug('title: %s' % title)
+
+        # Process --tracks
+        if args.tracks:
+            debug('tracks: %s' % args.tracks)
+            url_opts['num_tracks'] = args.tracks
+
+        # Process --exact
+        if args.exact:
+            debug('exact: %s' % args.exact)
+            url_opts['exact'] = 'yes'
+
+        # Process --album
+        if args.album:
+            debug('album: %s' % args.album)
+            url_opts['type'] = 'album'
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+        dest = config['plist-dest']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = get_filename(prefix, url_name, artist, title)
+        playlist = path.join(dest, filename)
+
+        try:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            fetch_playlist(config, request, playlist, args)
+            Mpc.auto(Mpc(config), filename)
+        except Exception as e:
+            error(e)
+
+    def radio(self, config, args):
+        """Fetch new station from search
+        """
+
+        url_name = "radio"
+        url_cmd = "/get_new_station_by_search"
+        url_opts = {
+                'type': 'artist',
+                'title': None,
+                'artist': None,
+                'exact': 'no',
+                'num_tracks': '20',
+                'type': 'artist',
+                'transient': 'yes',
+                'name': None}
+
+        debug('args: %s' % args)
+
+        # Process search string
+        if args.search_string:
+            debug("search_string: %s" % args.search_string)
+            search = tuple(args.search_string.split(','))
+
+            artist = search[0].rstrip(',')
+            url_opts['artist'] = artist
+            debug('artist: %s' % artist)
+
+            if len(search) >= 2:
+                title = search[1].strip()
+                url_opts['title'] = title
+                debug('title: %s' % title)
+            else:
+                title = None
+
+        # Process --name
+        if args.name:
+            debug('name: %s' % args.name)
+            url_opts['transient'] = 'no'
+            url_opts['name'] = args.name
+
+        # Process --tracks
+        if args.tracks:
+            debug('tracks: %s' % args.tracks)
+            url_opts['num_tracks'] = args.tracks
+
+        # Process --exact
+        if args.exact:
+            debug('exact: %s' % args.exact)
+            url_opts['exact'] = 'yes'
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+        dest = config['plist-dest']
+
+        # Build request URL
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = get_filename(prefix, url_name, artist, title)
+        playlist = path.join(dest, filename)
+
+        try:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            fetch_playlist(config, request, playlist, args)
+            Mpc.auto(Mpc(config), filename)
+        except Exception as e:
+            error(e)
+
+    def current(self, config, args):
+        """Fetch new station from current song
+        """
+
+        playid = Mpc.get_playid(Mpc(config))
+
+        url_name = "current"
+        url_cmd = "/get_new_station_by_id"
+        url_opts = {
+                'id': playid,
+                'num_tracks': '20',
+                'type': 'song',
+                'transient': 'yes',
+                'name': None}
+
+        debug('args: %s' % args)
+
+        # Process --tracks
+        if args.tracks:
+            debug('tracks: %s' % args.tracks)
+            url_opts['num_tracks'] = args.tracks
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+        dest = config['plist-dest']
+
+        # Build request URL
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = get_filename(prefix, url_name)
+        playlist = path.join(dest, filename)
+
+        try:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            fetch_playlist(config, request, playlist, args)
+            Mpc.auto(Mpc(config), filename)
+        except Exception as e:
+            error(e)
+
+    def collection(self, config, args):
+        """Fetch collection playlist
+        """
+
+        url_name = "collection"
+        url_cmd = "/get_collection"
+        url_opts = {
+                'shuffle': 'yes',
+                'rating': 2}
+
+        # Process --rating
+        if args.rating:
+            debug('rating: %s' % args.rating)
+            url_opts['rating'] = args.rating
+
+        # Process --shoff
+        if args.shoff:
+            debug('shoff: %s' % args.shoff)
+            url_opts['shuffle'] = False
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+        dest = config['plist-dest']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = get_filename(prefix, url_name, artist=None, title=None)
+        playlist = path.join(dest, filename)
+
+        try:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            fetch_playlist(config, request, playlist, args)
+            Mpc.auto(Mpc(config), filename)
+        except Exception as e:
+            error(e)
+
+    def promoted(self, config, args):
+        """Fetch promoted tracks playlist
+        """
+
+        url_name = "promoted"
+        url_cmd = "/get_promoted"
+        url_opts = {'shuffle': 'yes'}
+
+        # Process --shoff
+        if args.shoff:
+            debug('shoff: %s' % args.shoff)
+            url_opts['shuffle'] = False
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+        dest = config['plist-dest']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = get_filename(prefix, url_name, artist=None, title=None)
+        playlist = path.join(dest, filename)
+
+        try:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            fetch_playlist(config, request, playlist, args)
+            Mpc.auto(Mpc(config), filename)
+        except Exception as e:
+            error(e)
+
+    def lucky(self, config, args):
+        """Fetch I'm Feeling Lucky playlist
+        """
+
+        url_name = 'lucky'
+        url_cmd = '/get_ifl_station'
+        url_opts = {'num_tracks': 20}
+
+        # Process --tracks
+        if args.tracks:
+            debug('tracks: %s' % args.tracks)
+            url_opts['num_tracks'] = int(args.tracks)
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+        dest = config['plist-dest']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Get playlist name
+        filename = get_filename(prefix, url_name, artist=None, title=None)
+        playlist = path.join(dest, filename)
+
+        try:
+            debug('request: %s' % request)
+            debug('playlist: %s' % playlist)
+            fetch_playlist(config, request, playlist, args)
+            Mpc.auto(Mpc(config), filename)
+        except Exception as e:
+            error(e)
+
+    def discog(self, config, args):
+        """Fetch artist discography
+        """
+
+        search_cmd = '/search_id'
+        search_opts = {
+                'type': 'artist',
+                'artist': None,
+                'exact': 'no'}
+
+        url_name = 'albums'
+        url_cmd = '/get_discography_artist'
+        url_opts = {
+                'id': None,
+                'format': 'text'}
+
+        debug('args: %s' % args)
+        # Process search string
+        if args.search_string:
+            debug("search_string: %s" % args.search_string)
+            artist = args.search_string
+            search_opts['artist'] = artist
+        else:
+            error("needs artist")
+            return
+
+        # Process --exact
+        if args.exact:
+            debug('exact: %s' % args.exact)
+            search_opts['exact'] = 'yes'
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+
+        # Build search URL
+        search_url = proxy_url + search_cmd
+        search_req = requests.get(search_url, params=search_opts)
+        debug('search_req.url: %s' % search_req.url)
+
+        if search_req.status_code == 200:
+            url_opts['id'] = search_req.text
+
+            # Build request url
+            url_base = proxy_url + url_cmd
+            request = requests.get(url_base, params=url_opts)
+            debug('request.url: %s' % request.url)
+
+            # Read data and fetch playlists
+            if fetch_albums(request, prefix, url_name, artist):
+                info("Discography fetched!")
+        else:
+            error('unexpected error')
+
+    def toptracks(self, config, args):
+
+        search_cmd = '/search_id'
+        search_opts = {
+                'type': 'artist',
+                'artist': None,
+                'exact': 'no'}
+
+        url_name = 'toptracks'
+        url_cmd = '/get_top_tracks_artist'
+        url_opts = {
+                'id': None,
+                'type': 'artist',
+                'num_tracks': '20'}
+
+        debug('args: %s' % args)
+        # Process search string
+        if args.search_string:
+            debug("search_string: %s" % args.search_string)
+            artist = args.search_string
+            search_opts['artist'] = artist
+        else:
+            error("needs artist")
+            return
+
+        # Process --tracks
+        if args.tracks:
+            debug('tracks: %s' % args.tracks)
+            url_opts['num_tracks'] = int(args.tracks)
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+        dest = config['plist-dest']
+
+        # Build search URL
+        search_url = proxy_url + search_cmd
+        search_req = requests.get(search_url, params=search_opts)
+        debug('search_req.url: %s' % search_req.url)
+
+        if search_req.status_code == 200:
+            url_opts['id'] = search_req.text
+
+            # Build request url
+            url_base = proxy_url + url_cmd
+            request = requests.get(url_base, params=url_opts)
+            debug('url_base: %s' % request)
+            debug('request.url: %s' % request.url)
+
+            # Get playlist name
+            filename = get_filename(prefix, url_name, artist, title=None)
+            playlist = path.join(dest, filename)
+
+            try:
+                debug('request: %s' % request)
+                debug('playlist: %s' % playlist)
+                fetch_playlist(config, request, playlist, args)
+                Mpc.auto(Mpc(config), filename)
+            except Exception as e:
+                error(e)
+
+    def stations(self, config, args):
+        """Fetch all registered station playlists
+        """
+
+        url_name = 'stations'
+        url_cmd = '/get_all_stations'
+        url_opts = {'format': 'text'}
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        if fetch_batch(request, prefix, url_name):
+            info("Stations fetched!")
+
+    def listen(self, config, args):
+        """Fetch Listen Now playlists
+        """
+
+        if args.all:
+            args.artist = True
+            args.album = True
+            args.situation = True
+
+        if args.situation:
+            self.get_ln_situation(config)
+
+        if args.artist:
+            self.get_ln_artist(config)
+
+        if args.album:
+            self.get_ln_album(config)
+
+    def get_ln_artist(self, config):
+        """Fetch all Listen Now station playlists
+        """
+
+        url_name = 'listen'
+        url_cmd = '/get_listen_now'
+        url_opts = {
+                'type': 'artist',
+                'format': 'text',
+                }
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        try:
+            fetch_batch(request, prefix, url_name)
+            info("Listen Now artist stations fetched!")
+        except Exception as e:
+            error(e)
+
+    def get_ln_album(self, config):
+        """Fetch Listen Now suggested album playlists
+        """
+
+        url_name = 'listen'
+        url_cmd = '/get_listen_now'
+        url_opts = {
+                'type': 'album',
+                'format': 'text',
+                }
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        try:
+            fetch_batch(request, prefix, url_name)
+            info("Listen Now suggested albums fetched!")
+        except Exception as e:
+            error(e)
+
+    def get_ln_situation(self, config):
+        """Fetch Listen Now situation playlists
+        """
+
+        url_name = 'listen'
+        url_cmd = '/get_situations'
+        url_opts = {'format': 'text'}
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        try:
+            fetch_batch(request, prefix, url_name)
+            info("Listen Now situation playlists fetched!")
+        except Exception as e:
+            error(e)
+
+    def playlists(self, config, args):
+        """Fetch all user created playlists
+        """
+
+        url_name = 'playlists'
+        url_cmd = '/get_all_playlists'
+        url_opts = {'format': 'text'}
+
+        proxy_url = config['proxy-url']
+        prefix = config['plist-prefix']
+
+        # Build request url
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+        debug('request.url: %s' % request.url)
+
+        # Read data and fetch playlists
+        if fetch_batch(request, prefix, url_name):
+            info("Stations fetched!")
+
+    def show(self, config, args):
+        """Print current MPD playlist
+        """
+
+        plist = True
+        status = False
+
+        debug('args: %s' % args)
+
+        # if --status
+        if args.status:
+            plist = False
+            status = True
+
+        # if --both
+        if args.both:
+            status = True
+
+        if plist:
+            Mpc.playlist(Mpc(config))
+
+        if status:
+            if plist:
+                print(u'\u2500'*80)
+            Mpc.status(Mpc(config))
+
+    def list(self, config, args):
+        """List playlists
+
+        List filters prefix matches by default
+        --all displays all playlists in MPD
+        """
+
+        debug('args: %s' % args)
+
+        match = config['plist-prefix']
+
+        # Process --all
+        if args.all:
+            match = None
+
+        # Filter playlists starting with prefix
+        to_list = []
+        for p in Mpc.list_playlists(Mpc(config)):
+            if args.all:
+                to_list.append(p['playlist'])
+            elif p['playlist'].split('-')[0] == match:
+                to_list.append(p['playlist'])
+
+        # Print
+        to_list.sort()
+        for plist in to_list:
+            info(plist)
+
+    def rate(self, config, args):
+        """Rate song currently playing in MPD
+        """
+
+        playid = Mpc.get_playid(Mpc(config))
+        debug('playid: %s' % playid)
+
+        url_opts = {'id': playid}
+
+        if args.up:
+            url_cmd = '/like_song'
+            success = 'Thumbs up!'
+            skip = False
+        elif args.down:
+            url_cmd = '/dislike_song'
+            success = 'Thumbs down!'
+            skip = True
+        else:
+            pass
+
+        proxy_url = config['proxy-url']
+        url_base = proxy_url + url_cmd
+        request = requests.get(url_base, params=url_opts)
+
+        if request.status_code == 200:
+            info(success)
+            if skip:
+                Mpc.next(Mpc(config), success)
+
+    def purge(self, config, args):
+        """Delete playlists
+        """
+
+        dest = path.expanduser(config['plist-dest'])
+        prefix = config['plist-prefix']
+        debug("dest: %s" % dest)
+        debug("prefix: %s" % prefix)
+
+        if not prefix == '':
+            prefix += '-'
+
+        # Process --search
+        if args.search:
+            prefix += 'search'
+        # Process --radio
+        elif args.radio:
+            prefix += 'radio'
+        # Process --station
+        elif args.station:
+            prefix += 'station'
+        # Process --all
+        elif args.all:
+            prefix = ''
+
+        # Process --older
+        if args.older:
+            older = int(args.older)
+
+        # Query MPD
+        plist_data = Mpc.list_playlists(Mpc(config))
+
+        # Playlists to delete
+        to_delete = []
+
+        # Add playlists with matching prefix
+        for dirfile in plist_data:
+            if dirfile['playlist'].startswith(prefix):
+                to_delete.append(dirfile)
+        debug("to_delete: {}, {}".format(len(to_delete), to_delete))
+
+        # Filter playlists older than n hours
+        if args.older and older > 0:
+            older_than = []
+            now = time.time()
+            hours = older * 3600
+
+            for dfile in to_delete:
+                fext = dfile['playlist']
+                fext += ".m3u"
+                mtime = path.getmtime(path.join(dest, fext))
+                difftime = int(now - mtime)
+
+                if difftime > hours:
+                    older_than.append(dfile)
+
+            if len(older_than) > 0:
+                debug("older_than: {}, {}".format(len(older_than), older_than))
+                to_delete = older_than
+
+        # No matching playlists
+        if len(to_delete) == 0:
+            warn("No playlists to delete")
+            return
+
+        for pname in to_delete:
+            pname = pname['playlist']+".m3u"
+            fname = path.join(self.config['plist-dest'], pname)
+            fpath = path.expanduser(fname)
+
+            # Check if playlist exists and confirm deletion
+            if path.exists(fpath):
+                if not args.force:
+                    if not user_confirm('Delete: %s' % pname):
+                        continue
+                try:
+                    os.remove(fpath)
+                    info("Deleted: %s" % pname)
+                except Exception as e:
+                    error(e)
+
+
+class Mpc:
+
+    def __init__(self, config):
+        self.config = config
+
+    def setup(self):
+        """Setup MPD connection
+        """
+
+        host = self.config['mpd-host']
+        port = self.config['mpd-port']
+
+        self.client = MPDClient()
+        self.client.connect(host, port)
+
+    def end(self):
+        """End MPD connection
+        """
+
+        self.client.close()
+        self.client.disconnect()
+
+    def playlist(self):
+        """Print current MPD playlist
+
+        Displays playlist numbers, separator, and bolds current song
+        """
+
+        self.setup()
+
+        plist_info = self.client.playlistinfo()
+
+        # get column width for ljust
+        col_width = len(str(len(plist_info)+1))+1
+
+        if len(plist_info) > 0:
+            for song in plist_info:
+
+                try:
+                    # get playlist number (+1 because we like to start at 1)
+                    if 'pos' in song:
+                        item_num = int(song['pos'])+1
+                        item_num = str(item_num).ljust(col_width)
+
+                    # if we find name key, use that
+                    if 'name' in song:
+                        song_info = song['name']
+
+                    # otherwise we build it
+                    elif all(key in song for key in ['artist', 'album', 'title']):
+                        song_info = "{} - {} - {}".format(
+                                song['artist'],
+                                song['album'],
+                                song['title'])
+
+                except Exception as e:
+                    sys.exit(e)
+
+                # highlight current song
+                begin = ''
+                sep = '│ '
+                end = '\033[0m'
+                if song['id'] == self.get_id():
+                    begin = '\033[37;1m'
+
+                # trim song name > 80
+                sep_len = len(sep)
+                name_len = len(song_info)
+                total_len = col_width+sep_len+name_len
+                if total_len > 80:
+                    trim_amt = total_len - 80
+                    song_info = song_info[:-trim_amt]
+
+                print("{}{}{}{}{}".format(begin, item_num, sep, song_info, end))
+        else:
+            info('(playlist empty)')
+
+        self.end()
+
+    def status(self):
+        """Print status like 'mpc status'
+        """
+
+        self.setup()
+
+        info = self.client.status()
+        debug("client.status(): %s " % info)
+
+        line1 = []
+        if info:
+            line1.append("{}".format(self.get_song()))
+
+        line2 = []
+        if 'state' in info:
+            _state = info['state']
+            line2.append("[{}]  ".format(_state))
+
+        if 'song' in info:
+            _cur = str(int(info['song'])+1)
+            _total = info['playlistlength']
+            line2.append("#{}/{}  ".format(_cur, _total))
+
+        if 'elapsed' in info:
+            _elapsed = time_format(info['elapsed'])
+            line2.append("{}/".format(_elapsed))
+
+        if 'duration' in info:
+            _duration = time_format(info['duration'])
+            line2.append("{}  ".format(_duration))
+
+        line3 = []
+        if 'volume' in info:
+            _volume = info['volume']
+            line3.append("Volume: {}%  ".format(_volume))
+
+        if 'repeat' in info:
+            if info['repeat'] == 1:
+                _repeat = "on"
+            else:
+                _repeat = "off"
+            line3.append("Repeat: {}  ".format(_repeat))
+
+        if 'random' in info:
+            if info['random'] == 1:
+                _round = "on"
+            else:
+                _round = "off"
+            line3.append("Random: {}  ".format(_round))
+
+        if 'single' in info:
+            if info['single'] == 1:
+                _single = "on"
+            else:
+                _single = "off"
+            line3.append("Single: {}  ".format(_single))
+
+        if 'consume' in info:
+            if info['consume'] == 1:
+                _consume = "on"
+            else:
+                _consume = "off"
+            line3.append("Consume: {}  ".format(_consume))
+
+        for line in (line1, line2, line3):
+            print("".join(map(str, line)))
+
+        self.end()
+
+    def list_playlists(self):
+        """Get MPDClient.listplaylists()
+        """
+
+        self.setup()
+        plist_data = self.client.listplaylists()
+        self.end()
+
+        return plist_data
+
+    def auto(self, playlist=None):
+        """Clear, load, and play with MPD after fetching playlist
+
+        Args:
+            playlist (str): String containing playlist name (mpc load)
+        """
+
+        self.setup()
+
+        # this is used to jump to the new tracks when using load or
+        # start without clear
+        try:
+            snum = len(self.client.playlistinfo())
+        except Exception:
+            snum = 0
+        debug("snum: %s" % snum)
+
+        auto_clear = str(self.config['auto-clear']).lower()
+        if auto_clear == 'true':
+            self.client.clear()
+            snum = 0
+            info("Clearing playlist!")
+
+        auto_load = str(self.config['auto-load']).lower()
+        if auto_load == 'true' and playlist:
+            playlist = playlist.split('.')[0]
+            self.client.load(playlist)
+            info("Loading playlist: %s" % playlist)
+
+        auto_start = str(self.config['auto-start']).lower()
+        if auto_start == 'true':
+            self.client.play(snum)
+            info("Starting...")
+
+        self.end()
+
+    def play(self, track=None):
+        """Play track
+        """
+
+        self.setup()
+        self.client.play()
+        self.end()
+
+    def pause(self):
+        """Pause track
+        """
+
+        self.setup()
+        self.client.pause()
+        self.end()
+
+    def stop(self):
+        """Stop track
+        """
+
+        self.setup()
+        self.client.stop()
+        self.end()
+
+    def next(self, message=None):
+        """Next track
+        """
+
+        self.setup()
+        self.client.next()
+        self.end()
+
+        if message:
+            info(message)
+
+    def prev(self):
+        """Next track
+        """
+
+        self.setup()
+        self.client.prev()
+        self.end()
+
+    def get_id(self):
+        """Get MPD playlist ID for current song
+        """
+
+        try:
+            return self.client.currentsong()['id']
+        except Exception as e:
+            error(e)
+
+    def get_song(self):
+        """Get 'Artist - Title' for current song
+        """
+
+        try:
+            song = self.client.currentsong()
+            return "{} - {}".format(song['artist'], song['title'])
+        except Exception:
+            return "(not playing)"
+
+    def get_playid(self):
+        """Get Play ID for current song
+        """
+
+        self.setup()
+        url = self.client.currentsong()['file']
+        playid = url.split('=')[1]
+        self.end()
+
+        return playid
+
+    pass
+
+
+class PfCli(Commands):
 
     def __init__(self):
         """Read args, load config, and call sub command
@@ -123,50 +1257,53 @@ class PlayFetch:
                 DEBUG = True
 
             # Load user configuration
-            self.load_config()
+            self.config = load_config(DEFAULTS)
 
             # Overwrite config if user passed MPD args
-            if self.args.clear is True:
+            if self.args.clear:
                 self.config['auto-clear'] = True
 
-            if self.args.load is True:
+            if self.args.load:
                 self.config['auto-load'] = True
 
-            if self.args.start is True:
+            if self.args.start:
                 self.config['auto-start'] = True
 
             # Call subcommand
             debug('subparser: %s' % self.args.subparser)
-            if self.args.subparser == 'search':
-                self.cmd_search(self.args)
+            cmd = Commands()
+            if self.args.subparser == 'shell':
+                cmd.shell(self.config, self.args)
+            elif self.args.subparser == 'search':
+                cmd.search(self.config, self.args)
             elif self.args.subparser == 'radio':
-                self.cmd_radio(self.args)
+                cmd.radio(self.config, self.args)
             elif self.args.subparser == 'current':
-                self.cmd_current(self.args)
+                cmd.current(self.config, self.args)
             elif self.args.subparser == 'collection':
-                self.cmd_collection(self.args)
+                cmd.collection(self.config, self.args)
             elif self.args.subparser == 'promoted':
-                self.cmd_promoted(self.args)
+                cmd.promoted(self.config, self.args)
             elif self.args.subparser == 'lucky':
-                self.cmd_lucky(self.args)
+                cmd.lucky(self.config, self.args)
             elif self.args.subparser == 'stations':
-                self.cmd_stations(self.args)
+                cmd.stations(self.config, self.args)
             elif self.args.subparser == 'listen':
-                self.cmd_listen(self.args)
+                cmd.listen(self.config, self.args)
             elif self.args.subparser == 'playlists':
-                self.cmd_playlists(self.args)
+                cmd.playlists(self.config, self.args)
             elif self.args.subparser == 'discog':
-                self.cmd_discog(self.args)
+                cmd.discog(self.config, self.args)
             elif self.args.subparser == 'top':
-                self.cmd_toptracks(self.args)
+                cmd.toptracks(self.config, self.args)
             elif self.args.subparser == 'show':
-                self.cmd_show(self.args)
+                cmd.show(self.config, self.args)
             elif self.args.subparser == 'list':
-                self.cmd_list(self.args)
+                cmd.list(self.config, self.args)
             elif self.args.subparser == 'purge':
-                self.cmd_purge(self.args)
+                cmd.purge(self.config, self.args)
             elif self.args.subparser == 'rate':
-                self.cmd_rate(self.args)
+                cmd.rate(self.config, self.args)
 
         except Exception as e:
             sys.exit(e)
@@ -206,6 +1343,12 @@ class PlayFetch:
 
         # sub commands
         subparsers = parser.add_subparsers(dest='subparser')
+
+        # shell subcommand
+        parser_shell = subparsers.add_parser(
+                'shell',
+                description="Start interactive shell",
+                usage="playfetch shell")
 
         # search subcommand
         parser_search = subparsers.add_parser(
@@ -396,7 +1539,7 @@ class PlayFetch:
                 help="Also print MPD status")
         # print status only
         parser_show.add_argument(
-                '--so',
+                '-b', '--both',
                 action='store_true',
                 help="Print only MPD status")
 
@@ -461,1106 +1604,296 @@ class PlayFetch:
 
         return parser.parse_args(sys.argv[1:])
 
-    def load_config(self):
-        """Load configuration from user config
+
+class PfShell(Commands):
+
+    completer = FuzzyWordCompleter([
+        'help', 'search', 'current', 'top',
+        'discog', 'radio', 'listen', 'lucky',
+        'promoted', 'collection', 'stations',
+        'playlists', 'purge', 'list', 'show',
+        '--tracks', '--rating', '--exact',
+        '--album', '--name', '--artist',
+        '--situation', '--all', '--status',
+        '--both', '--shoff', '--up', '--down',
+        '--force', '--clear', '--load', '--start',
+        '--play', '--pause', '--stop', '--next', '--prev',
+    ])
+
+    def __init__(self, config, args):
+        """Start interactive shell
         """
 
-        config = {}
+        self.config = config
 
-        # Override from user config
-        filename = path.join(__APP_DIRS__['config'], 'config')
-        if path.exists(filename):
-            debug('user config found: %s' % filename)
-            user_conf = configparser.ConfigParser(self.config)
-            user_conf.read(filename)
+        # Enable debugging
+        if args.debug:
+            global DEBUG
+            DEBUG = True
 
-            # All keys are required for config to be valid
-            try:
-                for key in self.config.keys():
-                    config[key] = user_conf.get(__APP_NAME__, key)
-                debug('user config: %s' % config)
-                self.config = config
-            except Exception:
-                error("Invalid config: %s" % filename)
+        info("♫ %s - %s" % (__APP_NAME__, __APP_VER__))
+        info('(Ctrl+D to quit)')
 
-    def _get_filename(self, prefix=None, command=None, artist=None, title=None):
-        """Get filename with extension for new playlist
+        completer = self.completer
+        history = InMemoryHistory()
+        session = PromptSession(
+                history=history,
+                enable_history_search=True,
+                auto_suggest=AutoSuggestFromHistory(),
+                completer=completer,
+                complete_while_typing=True,)
 
-        Args:
-            prefix (str): String containing playlist prefix
-            command (str): String containing subcommand
-            artist (str): String containing artist
-            title (str): String containing title
+        while True:
+            try: 
+                command = session.prompt('▶ ')
+                debug("command: %s" % command)
+                if command:
+                    self.args = self.read_args(command)
 
-            All args are optional, but at least one is required
+                    debug("args: %s" % self.args)
 
-        Returns:
-            Return file name with extension or False
-        """
+                    # Overwrite config if user passed MPD args
+                    self.config['auto-clear'] = hasattr(self.args, 'clear')
+                    self.config['auto-load'] = hasattr(self.args, 'load')
+                    self.config['auto-start'] = hasattr(self.args, 'start')
 
-        str_list = []
-        ext = ".m3u"
+                    if self.args.subparser:
+                        debug("execute: %s" % self.args.subparser)
+                        self.execute(self.config, self.args)
+                    else:
+                        error('Command not found!')
 
-        if prefix:
-            str_list.append(self._get_valid_str(prefix))
+            except ShellError:
+                pass
 
-        if command:
-            str_list.append(self._get_valid_str(command))
+            except KeyboardInterrupt:
+                pass
 
-        if artist:
-            str_list.append(self._get_valid_str(artist))
+            except EOFError:
+                break
 
-        if title:
-            str_list.append(self._get_valid_str(title))
+            except Exception as e:
+                error(e)
 
-        if len(str_list) > 0:
-            filename = '-'.join(str_list)
-            filename += ext
-            debug("filename: %s" % filename.lower())
-            return filename.lower()
-
-        else:
-            return False
-
-    def _get_valid_str(self, text):
-        """Get valid strings for filenames
-
-        Args:
-            text (str): String to make valid
-
-        Returns:
-            Return string containing valid file path characters
-        """
-
-        vchar = "-_.()[] %s%s" % (string.ascii_letters, string.digits)
-        text = re.sub('\s', '_', text)
-        return ''.join(c for c in text if c in vchar)
-
-    def user_confirm(self, prompt):
-        """Get user confirmation
-
-        Args:
-            prompt (str): Question to prompt user with
-
-        Returns:
-            Return True is user selects one of many choices (or enter)
-        """
-
-        yes = input('%s. Continue? (y/n) [y]: ' % prompt)
-        debug('val: %s' % yes)
-        return yes.lower() in ('', "yes", "y", "true", "t", "1", "on")
-
-    def fetch_playlist(self, results, filename):
-        """Fetch playlist
-
-        Args:
-            results (obj): Requests.request data
-            filename (str): Filename to write playlist to
-
-        Returns:
-            Return True if playlist written, False otherwise
-        """
-
-        filename = path.expanduser(filename)
-
-        # Make sure we got results or bail
-        if not results.status_code == 200:
-            error('Request failed: %s' % results.status_code)
-            return False
-
-        # Check if playlist exists and prompt to overwrite
-        if path.exists(filename):
-            debug('force: %s' % self.args.force)
-            if not self.args.force:
-                if not self.user_confirm('File exists: %s' % path.basename(filename)):
-                    warn('User aborted!')
-                    return False
-
-        # Write playlist from results data
-        with open(filename, 'wb') as fd:
-            for chunk in results.iter_content(chunk_size=128):
-                fd.write(chunk)
-            info('Fetch: ' + path.basename(filename))
-            return True
-
-    def fetch_batch(self, results, prefix, command):
-        """Parse text and fetch playlists
-
-        Args:
-            results (obj): Requests.request data
-            prefix (str): String containing playlist prefix
-            command (str): String containing subcommand
-        """
-
-        for line in results.text.splitlines():
-            if len(line) > 0:
-
-                name, url = line.split('|')
-                if command == 'listen':
-                    junk, name = name.split(' - ')
-                filename = path.join(
-                        self.config['plist-dest'],
-                        self._get_filename(prefix, command, name))
-
-                subreq = requests.get(url)
-                self.fetch_playlist(subreq, filename)
-
-    def fetch_albums(self, results, prefix, command, artist):
-        """Fetch artist discography
-
-        Args:
-            results (obj): Requests.request data
-            prefix (str): String containing playlist prefix
-            command (str): String containing subcommand
-            artist (str): String containing artist
-        """
-
-        for line in results.text.splitlines():
-            if len(line) > 0:
-
-                title, year, url = line.split('|')
-                album = artist+'-'+year+'-'+title
-
-                filename = path.join(
-                        self.config['plist-dest'],
-                        self._get_filename(prefix, command, album))
-
-                subreq = requests.get(url)
-                self.fetch_playlist(subreq, filename)
-
-    def mpd_init(self):
-        """Setup MPD connection
-        """
-
-        host = self.config['mpd-host']
-        port = self.config['mpd-port']
-
-        self.client = MPDClient()
-        self.client.connect(host, port)
-
-    def mpd_end(self):
-        """End MPD connection
-        """
-
-        self.client.close()
-        self.client.disconnect()
-
-    def mpd_ctrl(self, playlist=None):
-        """Clear, load, and play with MPD after fetching playlist
-
-        Args:
-            playlist (str): String containing playlist name (mpc load)
-        """
-
-        self.mpd_init()
-
-        # this is used to jump to the new tracks when using load or
-        # start without clear
+    def execute(self, config, args):
         try:
-            snum = len(self.client.playlistinfo())
-        except Exception:
-            snum = 0
-        debug("snum: %s" % snum)
-
-        auto_clear = str(self.config['auto-clear']).lower()
-        if auto_clear == 'true':
-            self.client.clear()
-            snum = 0
-            info("Clearing playlist!")
-
-        auto_load = str(self.config['auto-load']).lower()
-        if auto_load == 'true' and playlist:
-            playlist = playlist.split('.')[0]
-            self.client.load(playlist)
-            info("Loading playlist: %s" % playlist)
-
-        auto_start = str(self.config['auto-start']).lower()
-        if auto_start == 'true':
-            self.client.play(snum)
-            info("Starting...")
-
-        self.mpd_end()
-
-    def mpd_playlist(self):
-        """Print current MPD playlist
-
-        Displays playlist numbers, separator, and bolds current song
-        """
-
-        self.mpd_init()
-
-        plist_info = self.client.playlistinfo()
-
-        # get column width for ljust
-        col_width = len(str(len(plist_info)+1))+1
-
-        if len(plist_info) > 0:
-            for song in plist_info:
-
-                try:
-                    # get playlist number (+1 because we like to start at 1)
-                    if 'pos' in song:
-                        item_num = int(song['pos'])+1
-                        item_num = str(item_num).ljust(col_width)
-
-                    # if we find name key, use that
-                    if 'name' in song:
-                        song_info = song['name']
-
-                    # otherwise we build it
-                    elif all(key in song for key in ['artist', 'album', 'title']):
-                        song_info = "{} - {} - {}".format(
-                                song['artist'],
-                                song['album'],
-                                song['title'])
-
-                except Exception as e:
-                    sys.exit(e)
-
-                # highlight current song
-                begin = ''
-                sep = '│ '
-                end = '\033[0m'
-                if song['id'] == self._cur_id():
-                    begin = '\033[37;1m'
-
-                # trim song name > 80
-                sep_len = len(sep)
-                name_len = len(song_info)
-                total_len = col_width+sep_len+name_len
-                if total_len > 80:
-                    trim_amt = total_len - 80
-                    song_info = song_info[:-trim_amt]
-
-                print("{}{}{}{}{}".format(begin, item_num, sep, song_info, end))
-        else:
-            info('(playlist empty)')
-
-        self.mpd_end()
-
-    def mpd_status(self):
-        """Print status like 'mpc status'
-        """
-
-        self.mpd_init()
-
-        info = self.client.status()
-        debug("client.status(): %s " % info)
-
-        line1 = []
-        if info:
-            line1.append("{}".format(self._cur_song()))
-
-        line2 = []
-        if 'state' in info:
-            _state = info['state']
-            line2.append("[{}]  ".format(_state))
-
-        if 'song' in info:
-            _cur = str(int(info['song'])+1)
-            _total = info['playlistlength']
-            line2.append("#{}/{}  ".format(_cur, _total))
-
-        if 'elapsed' in info:
-            _elapsed = self._time_fmt(info['elapsed'])
-            line2.append("{}/".format(_elapsed))
-
-        if 'duration' in info:
-            _duration = self._time_fmt(info['duration'])
-            line2.append("{}  ".format(_duration))
-
-        line3 = []
-        if 'volume' in info:
-            _volume = info['volume']
-            line3.append("Volume: {}%  ".format(_volume))
-
-        if 'repeat' in info:
-            if info['repeat'] == 1:
-                _repeat = "on"
-            else:
-                _repeat = "off"
-            line3.append("Repeat: {}  ".format(_repeat))
-
-        if 'random' in info:
-            if info['random'] == 1:
-                _round = "on"
-            else:
-                _round = "off"
-            line3.append("Random: {}  ".format(_round))
-
-        if 'single' in info:
-            if info['single'] == 1:
-                _single = "on"
-            else:
-                _single = "off"
-            line3.append("Single: {}  ".format(_single))
-
-        if 'consume' in info:
-            if info['consume'] == 1:
-                _consume = "on"
-            else:
-                _consume = "off"
-            line3.append("Consume: {}  ".format(_consume))
-
-        for line in (line1, line2, line3):
-            print("".join(map(str, line)))
-
-        self.mpd_end()
-
-    def mpd_skip(self):
-        """Skip track, for rate --down
-        """
-
-        self.mpd_init()
-        self.client.next()
-        self.mpd_end()
-        info("Skipping...")
-
-    def mpd_listplaylists(self):
-        """Get MPDClient.listplaylists()
-        """
-
-        self.mpd_init()
-        plist_data = self.client.listplaylists()
-        self.mpd_end()
-
-        return plist_data
-
-    def _time_fmt(self, seconds):
-        """Time for humans
-        """
-
-        dtime = round(float(seconds))
-        return datetime.strftime(datetime.utcfromtimestamp(dtime), "%M:%S")
-
-    def _cur_id(self):
-        """Get MPD playlist ID for current song
-        """
-
-        try:
-            return self.client.currentsong()['id']
-        except Exception:
+            run = getattr(self, args.subparser)
+            run(config, args)
+        except TypeError:
             pass
 
-    def _cur_song(self):
-        """Get 'Artist - Title' for current song
+    def read_args(self, command):
+        """Parse commands in interactive shell
         """
 
-        try:
-            song = self.client.currentsong()
-            name = "{} - {}".format(song['artist'], song['title'])
-        except Exception:
-            name = "(not playing)"
-
-        return name
-
-    def _cur_playid(self):
-        """Get Play ID for current song
-        """
-
-        self.mpd_init()
-        current_url = self.client.currentsong()['file']
-        url, playid = current_url.split('=')
-        self.mpd_end()
-
-        return playid
-
-    """Subcommands
-
-    Args:
-        args (dict): Command line arguments
-    """
-
-    def cmd_search(self, args):
-        """Fetch playlist of search results
-        """
-
-        url_name = 'search'
-        url_cmd = '/get_by_search'
-        url_opts = {
-                'type': 'matches',
-                'title': None,
-                'artist': None,
-                'exact': 'no',
-                'num_tracks': '20'}
-
-        debug('args: %s' % args)
-        # Process search string
-        if args.search_string:
-            debug("search_string: %s" % args.search_string)
-            search = tuple(args.search_string.split(','))
-
-            artist = search[0].rstrip(',')
-            url_opts['artist'] = artist
-            debug('artist: %s' % artist)
-
-            if len(search) >= 2:
-                title = search[1].strip()
-                url_opts['title'] = title
-            else:
-                title = None
-            debug('title: %s' % title)
-
-        # Process --tracks
-        if args.tracks:
-            debug('tracks: %s' % args.tracks)
-            url_opts['num_tracks'] = args.tracks
-
-        # Process --exact
-        if args.exact:
-            debug('exact: %s' % args.exact)
-            url_opts['exact'] = 'yes'
-
-        # Process --album
-        if args.album:
-            debug('album: %s' % args.album)
-            url_opts['type'] = 'album'
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Get playlist name
-        filename = self._get_filename(prefix, url_name, artist, title)
-        playlist = path.join(dest, filename)
-
-        # Fetch playlist
-        if request and playlist:
-            debug('request: %s' % request)
-            debug('playlist: %s' % playlist)
-            if self.fetch_playlist(request, playlist):
-                # Post-fetch commands
-                self.mpd_ctrl(filename)
-
-    def cmd_radio(self, args):
-        """Fetch new station from search
-        """
-
-        url_name = "radio"
-        url_cmd = "/get_new_station_by_search"
-        url_opts = {
-                'type': 'artist',
-                'title': None,
-                'artist': None,
-                'exact': 'no',
-                'num_tracks': '20',
-                'type': 'artist',
-                'transient': 'yes',
-                'name': None}
-
-        debug('args: %s' % args)
-
-        # Process search string
-        if args.search_string:
-            debug("search_string: %s" % args.search_string)
-            search = tuple(args.search_string.split(','))
-
-            artist = search[0].rstrip(',')
-            url_opts['artist'] = artist
-            debug('artist: %s' % artist)
-
-            if len(search) >= 2:
-                title = search[1].strip()
-                url_opts['title'] = title
-                debug('title: %s' % title)
-            else:
-                title = None
-
-        # Process --name
-        if args.name:
-            debug('name: %s' % args.name)
-            url_opts['transient'] = 'no'
-            url_opts['name'] = args.name
-
-        # Process --tracks
-        if args.tracks:
-            debug('tracks: %s' % args.tracks)
-            url_opts['num_tracks'] = args.tracks
-
-        # Process --exact
-        if args.exact:
-            debug('exact: %s' % args.exact)
-            url_opts['exact'] = 'yes'
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
-
-        # Build request URL
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Get playlist name
-        filename = self._get_filename(prefix, url_name, artist, title)
-        playlist = path.join(dest, filename)
-
-        # Fetch playlist
-        if request and playlist:
-            debug('request: %s' % request)
-            debug('playlist: %s' % playlist)
-            if self.fetch_playlist(request, playlist):
-                # Post-fetch commands
-                self.mpd_ctrl(filename)
-
-    def cmd_current(self, args):
-        """Fetch new station from current song
-        """
-
-        playid = self._cur_playid()
-
-        url_name = "current"
-        url_cmd = "/get_new_station_by_id"
-        url_opts = {
-                'id': playid,
-                'num_tracks': '20',
-                'type': 'song',
-                'transient': 'yes',
-                'name': None}
-
-        debug('args: %s' % args)
-
-        # Process --tracks
-        if args.tracks:
-            debug('tracks: %s' % args.tracks)
-            url_opts['num_tracks'] = args.tracks
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
-
-        # Build request URL
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Get playlist name
-        filename = self._get_filename(prefix, url_name)
-        playlist = path.join(dest, filename)
-
-        # Fetch playlist
-        if request and playlist:
-            debug('request: %s' % request)
-            debug('playlist: %s' % playlist)
-            if self.fetch_playlist(request, playlist):
-                # Post-fetch commands
-                self.mpd_ctrl(filename)
-
-    def cmd_collection(self, args):
-        """Fetch collection playlist
-        """
-
-        url_name = "collection"
-        url_cmd = "/get_collection"
-        url_opts = {
-                'shuffle': 'yes',
-                'rating': 2}
-
-        # Process --rating
-        if args.rating:
-            debug('rating: %s' % args.rating)
-            url_opts['rating'] = args.rating
-
-        # Process --shoff
-        if args.shoff:
-            debug('shoff: %s' % args.shoff)
-            url_opts['shuffle'] = False
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Get playlist name
-        filename = self._get_filename(prefix, url_name, artist=None, title=None)
-        playlist = path.join(dest, filename)
-
-        # Fetch playlist
-        if request and playlist:
-            debug('request: %s' % request)
-            debug('playlist: %s' % playlist)
-            if self.fetch_playlist(request, playlist):
-                # Post-fetch commands
-                self.mpd_ctrl(filename)
-
-    def cmd_promoted(self, args):
-        """Fetch promoted tracks playlist
-        """
-
-        url_name = "promoted"
-        url_cmd = "/get_promoted"
-        url_opts = {'shuffle': 'yes'}
-
-        # Process --shoff
-        if args.shoff:
-            debug('shoff: %s' % args.shoff)
-            url_opts['shuffle'] = False
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Get playlist name
-        filename = self._get_filename(prefix, url_name, artist=None, title=None)
-        playlist = path.join(dest, filename)
-
-        # Fetch playlist
-        if request and playlist:
-            debug('request: %s' % request)
-            debug('playlist: %s' % playlist)
-            if self.fetch_playlist(request, playlist):
-                # Post-fetch commands
-                self.mpd_ctrl(filename)
-
-    def cmd_lucky(self, args):
-        """Fetch I'm Feeling Lucky playlist
-        """
-
-        url_name = 'lucky'
-        url_cmd = '/get_ifl_station'
-        url_opts = {'num_tracks': 20}
-
-        # Process --tracks
-        if args.tracks:
-            debug('tracks: %s' % args.tracks)
-            url_opts['num_tracks'] = int(args.tracks)
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Get playlist name
-        filename = self._get_filename(prefix, url_name, artist=None, title=None)
-        playlist = path.join(dest, filename)
-
-        # Fetch playlist
-        if request and playlist:
-            debug('request: %s' % request)
-            debug('playlist: %s' % playlist)
-            if self.fetch_playlist(request, playlist):
-                # Post-fetch commands
-                self.mpd_ctrl(filename)
-
-    def cmd_discog(self, args):
-        """Fetch artist discography
-        """
-
-        search_cmd = '/search_id'
-        search_opts = {
-                'type': 'artist',
-                'artist': None,
-                'exact': 'no'}
-
-        url_name = 'albums'
-        url_cmd = '/get_discography_artist'
-        url_opts = {
-                'id': None,
-                'format': 'text'}
-
-        debug('args: %s' % args)
-        # Process search string
-        if args.search_string:
-            debug("search_string: %s" % args.search_string)
-            artist = args.search_string
-            search_opts['artist'] = artist
-        else:
-            error("needs artist")
-            return
-
-        # Process --exact
-        if args.exact:
-            debug('exact: %s' % args.exact)
-            search_opts['exact'] = 'yes'
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-#        dest = self.config['plist-dest']
-
-        # Build search URL
-        search_url = proxy_url + search_cmd
-        search_req = requests.get(search_url, params=search_opts)
-        debug('search_req.url: %s' % search_req.url)
-
-        if search_req.status_code == 200:
-            url_opts['id'] = search_req.text
-
-            # Build request url
-            url_base = proxy_url + url_cmd
-            request = requests.get(url_base, params=url_opts)
-            debug('request.url: %s' % request.url)
-
-            # Read data and fetch playlists
-            if self.fetch_albums(request, prefix, url_name, artist):
-                info("Discography fetched!")
-        else:
-            error('unexpected error')
-
-    def cmd_toptracks(self, args):
-
-        search_cmd = '/search_id'
-        search_opts = {
-                'type': 'artist',
-                'artist': None,
-                'exact': 'no'}
-
-        url_name = 'toptracks'
-        url_cmd = '/get_top_tracks_artist'
-        url_opts = {
-                'id': None,
-                'type': 'artist',
-                'num_tracks': '20'}
-
-        debug('args: %s' % args)
-        # Process search string
-        if args.search_string:
-            debug("search_string: %s" % args.search_string)
-            artist = args.search_string
-            search_opts['artist'] = artist
-        else:
-            error("needs artist")
-            return
-
-        # Process --tracks
-        if args.tracks:
-            debug('tracks: %s' % args.tracks)
-            url_opts['num_tracks'] = int(args.tracks)
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-        dest = self.config['plist-dest']
-
-        # Build search URL
-        search_url = proxy_url + search_cmd
-        search_req = requests.get(search_url, params=search_opts)
-        debug('search_req.url: %s' % search_req.url)
-
-        if search_req.status_code == 200:
-            url_opts['id'] = search_req.text
-
-            # Build request url
-            url_base = proxy_url + url_cmd
-            request = requests.get(url_base, params=url_opts)
-            debug('url_base: %s' % request)
-            debug('request.url: %s' % request.url)
-
-            # Get playlist name
-            filename = self._get_filename(prefix, url_name, artist, title=None)
-            playlist = path.join(dest, filename)
-
-            # Fetch playlist
-            if request and playlist:
-                debug('request: %s' % request)
-                debug('playlist: %s' % playlist)
-                if self.fetch_playlist(request, playlist):
-                    # Post-fetch commands
-                    self.mpd_ctrl(filename)
-
-    def cmd_stations(self, args):
-        """Fetch all registered station playlists
-        """
-
-        url_name = 'stations'
-        url_cmd = '/get_all_stations'
-        url_opts = {'format': 'text'}
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Read data and fetch playlists
-        if self.fetch_batch(request, prefix, url_name):
-            info("Stations fetched!")
-
-    def cmd_listen(self, args):
-        """Fetch Listen Now playlists
-        """
-
-        if args.all:
-            args.artist = True
-            args.album = True
-            args.situation = True
-
-        if args.situation:
-            self._listen_situation()
-
-        if args.artist:
-            self._listen_artist()
-
-        if args.album:
-            self._listen_album()
-
-    def _listen_artist(self):
-        """Fetch all Listen Now station playlists
-        """
-
-        url_name = 'listen'
-        url_cmd = '/get_listen_now'
-        url_opts = {
-                'type': 'artist',
-                'format': 'text',
-                }
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Read data and fetch playlists
-        if self.fetch_batch(request, prefix, url_name):
-            info("Listen Now artist stations fetched!")
-
-    def _listen_album(self):
-        """Fetch Listen Now suggested album playlists
-        """
-
-        url_name = 'listen'
-        url_cmd = '/get_listen_now'
-        url_opts = {
-                'type': 'album',
-                'format': 'text',
-                }
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Read data and fetch playlists
-        if self.fetch_batch(request, prefix, url_name):
-            info("Listen Now suggested albums fetched!")
-
-    def _listen_situation(self):
-        """Fetch Listen Now situation playlists
-        """
-
-        url_name = 'listen'
-        url_cmd = '/get_situations'
-        url_opts = {'format': 'text'}
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Read data and fetch playlists
-        if self.fetch_batch(request, prefix, url_name):
-            info("Listen Now situation playlists fetched!")
-
-    def cmd_playlists(self, args):
-        """Fetch all user created playlists
-        """
-
-        url_name = 'playlists'
-        url_cmd = '/get_all_playlists'
-        url_opts = {'format': 'text'}
-
-        proxy_url = self.config['proxy-url']
-        prefix = self.config['plist-prefix']
-#        dest = self.config['plist-dest']
-
-        # Build request url
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-        debug('request.url: %s' % request.url)
-
-        # Read data and fetch playlists
-        if self.fetch_batch(request, prefix, url_name):
-            info("Stations fetched!")
-
-    def cmd_show(self, args):
-        """Print current MPD playlist
-        """
-
-        plist = True
-        status = False
-
-        # if --status
-        if args.status:
-            status = True
-
-        # if --so
-        if args.so:
-            plist = False
-            status = True
-
-        if plist:
-            self.mpd_playlist()
-        if status:
-            if plist:
-                print(u'\u2500'*80)
-            self.mpd_status()
-
-    def cmd_list(self, args):
-        """List playlists
-
-        List filters prefix matches by default
-        --all displays all playlists in MPD
-        """
-
-        match = self.config['plist-prefix']
-
-        # Process --all
-        if args.all:
-            match = None
-
-        # Filter playlists starting with prefix
-        to_list = []
-        for p in self.mpd_listplaylists():
-            if args.all:
-                to_list.append(p['playlist'])
-            elif p['playlist'].split('-')[0] == match:
-                to_list.append(p['playlist'])
-
-        # Print
-        to_list.sort()
-        for plist in to_list:
-            info(plist)
-
-    def cmd_rate(self, args):
-        """Rate song currently playing in MPD
-        """
-
-        playid = self._cur_playid()
-        debug('playid: %s' % playid)
-
-        url_opts = {'id': playid}
-
-        if self.args.up:
-            url_cmd = '/like_song'
-            success = 'Thumbs up!'
-            skip = False
-        elif self.args.down:
-            url_cmd = '/dislike_song'
-            success = 'Thumbs down!'
-            skip = True
-        else:
-            pass
-
-        proxy_url = self.config['proxy-url']
-        url_base = proxy_url + url_cmd
-        request = requests.get(url_base, params=url_opts)
-
-        if request.status_code == 200:
-            info(success)
-            if skip:
-                self.mpd_skip()
-
-    def cmd_purge(self, args):
-        """Delete playlists
-        """
-
-        dest = path.expanduser(self.config['plist-dest'])
-        prefix = self.config['plist-prefix']
-
-        if not prefix == '':
-            prefix += '-'
-
-        # Process --search
-        if args.search:
-            prefix += 'search'
-        # Process --radio
-        elif args.radio:
-            prefix += 'radio'
-        # Process --station
-        elif args.station:
-            prefix += 'station'
-        # Process --all
-        elif args.all:
-            prefix = ''
-
-        # Process --older
-        if args.older:
-            older = int(args.older)
-
-        # Query MPD
-        self.mpd_init()
-        plist_data = self.client.listplaylists()
-        self.mpd_end()
-
-        # Playlists to delete
-        to_delete = []
-
-        # Add playlists with matching prefix
-        for dirfile in plist_data:
-            if dirfile['playlist'].startswith(prefix):
-                to_delete.append(dirfile)
-        debug("to_delete: {}, {}".format(len(to_delete), to_delete))
-
-        # Filter playlists older than n hours
-        if args.older and older > 0:
-            older_than = []
-            now = time.time()
-            hours = older * 3600
-
-            for dfile in to_delete:
-                fext = dfile['playlist']
-                fext += ".m3u"
-                mtime = path.getmtime(path.join(dest, fext))
-                difftime = int(now - mtime)
-
-                if difftime > hours:
-                    older_than.append(dfile)
-
-            if len(older_than) > 0:
-                debug("older_than: {}, {}".format(len(older_than), older_than))
-                to_delete = older_than
-
-        # No matching playlists
-        if len(to_delete) == 0:
-            warn("No playlists to delete")
-            return
-
-        for pname in to_delete:
-            pname = pname['playlist']+".m3u"
-            fname = path.join(self.config['plist-dest'], pname)
-            fpath = path.expanduser(fname)
-
-            # Check if playlist exists and confirm deletion
-            if path.exists(fpath):
-                if not args.force:
-                    if not self.user_confirm('Delete: %s' % pname):
-                        continue
-                try:
-                    os.remove(fpath)
-                    info("Deleted: %s" % pname)
-                except Exception as e:
-                    error(e)
+        main_parser = ShellParser(add_help=False)
+        main_parser.add_argument(
+                '-F', '--force',
+                action='store_true')
+
+        post_parser = ShellParser(add_help=False)
+        post_parser.add_argument(
+                '-C', '--clear',
+                action='store_true')
+        post_parser.add_argument(
+                '-L', '--load',
+                action='store_true')
+        post_parser.add_argument(
+                '-S', '--start',
+                action='store_true')
+
+        parser = ShellParser(add_help=False)
+        subparsers = parser.add_subparsers(dest='subparser')
+
+        parser_mpc = subparsers.add_parser(
+                'm',
+                add_help=False)
+        parser_mpc.add_argument(
+                '--play',
+                action='store_true')
+        parser_mpc.add_argument(
+                '--pause',
+                action='store_true')
+        parser_mpc.add_argument(
+                '--stop',
+                action='store_true')
+        parser_mpc.add_argument(
+                '--next',
+                action='store_true')
+        parser_mpc.add_argument(
+                '--prev',
+                action='store_true')
+
+        parser_search = subparsers.add_parser(
+                'search',
+                parents=[main_parser, post_parser],
+                add_help=False)
+        parser_search.add_argument(
+                'search_string',
+                action='store')
+        parser_search.add_argument(
+                '-t', '--tracks',
+                action='store',
+                type=int)
+        parser_search.add_argument(
+                '-e', '--exact',
+                action='store_true')
+        parser_search.add_argument(
+                '-a', '--album',
+                action='store_true')
+
+        parser_current = subparsers.add_parser(
+                'current',
+                parents=[main_parser, post_parser],
+                add_help=False)
+        parser_current.add_argument(
+                '-t', '--tracks',
+                action='store',
+                type=int)
+
+        parser_radio = subparsers.add_parser(
+                'radio',
+                parents=[main_parser, post_parser],
+                add_help=False)
+        parser_radio.add_argument(
+                'search_string',
+                action='store')
+        parser_radio.add_argument(
+                '-n', '--name',
+                action='store')
+        parser_radio.add_argument(
+                '-t', '--tracks',
+                action='store',
+                type=int)
+        parser_radio.add_argument(
+                '-e', '--exact',
+                action='store_true')
+
+        parser_promoted = subparsers.add_parser(
+                'promoted',
+                parents=[main_parser, post_parser],
+                add_help=False)
+        parser_promoted.add_argument(
+                '--shoff',
+                action='store_true')
+
+        parser_discog = subparsers.add_parser(
+                'discog',
+                parents=[main_parser],
+                add_help=False)
+        parser_discog.add_argument(
+                'search_string',
+                action='store')
+        parser_discog.add_argument(
+                '-e', '--exact',
+                action='store_true')
+
+        parser_lucky = subparsers.add_parser(
+                'lucky',
+                parents=[main_parser, post_parser],
+                add_help=False)
+        parser_lucky.add_argument(
+                '-t', '--tracks',
+                action='store',
+                type=int)
+
+        parser_collection = subparsers.add_parser(
+                'collection',
+                parents=[main_parser, post_parser],
+                add_help=False)
+        parser_collection.add_argument(
+                '-r', '--rating',
+                action='store',
+                type=int)
+        parser_collection.add_argument(
+                '--shoff',
+                action='store')
+
+        parser_top = subparsers.add_parser(
+                'top',
+                parents=[main_parser, post_parser],
+                add_help=False)
+        parser_top.add_argument(
+                'search_string',
+                action='store')
+        parser_top.add_argument(
+                '-t', '--tracks',
+                action='store',
+                type=int)
+
+        parser_stations = subparsers.add_parser(
+                'stations',
+                parents=[main_parser],
+                add_help=False)
+
+        parser_playlists = subparsers.add_parser(
+                'playlists',
+                parents=[main_parser],
+                add_help=False)
+
+        parser_show = subparsers.add_parser(
+                'show',
+                add_help=False)
+        parser_show.add_argument(
+                '-s', '--status',
+                action='store_true')
+        parser_show.add_argument(
+                '-b', '--both',
+                action='store_true')
+
+        parser_list = subparsers.add_parser(
+                'list',
+                add_help=False)
+        parser_list.add_argument(
+                '-a', '--all',
+                action='store_true')
+
+        parser_rate = subparsers.add_parser(
+                'rate',
+                add_help=False)
+        parser_rate.add_argument(
+                '-u', '--up',
+                action='store_true')
+        parser_rate.add_argument(
+                '-d', '--down',
+                action='store_true')
+
+        parser_purge = subparsers.add_parser(
+                'purge',
+                parents=[main_parser],
+                add_help=False)
+        parser_purge.add_argument(
+                '--search',
+                action='store_true')
+        parser_purge.add_argument(
+                '--radio',
+                action='store_true')
+        parser_purge.add_argument(
+                '--station',
+                action='store_true')
+        parser_purge.add_argument(
+                '--all',
+                action='store_true')
+        parser_purge.add_argument(
+                '-o', '--older',
+                action='store',
+                type=int)
+
+        return parser.parse_args(shlex.split(command, posix=True))
+
+
+class ShellError(Exception):
+    pass
+
+
+class ShellParser(argparse.ArgumentParser):
+
+    def error(self, message):
+        raise ShellError(message)
 
 
 if __name__ == '__main__':
-    PlayFetch()
+    PfCli()
 
 
 # vim: set ft=python:
