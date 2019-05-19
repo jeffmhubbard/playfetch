@@ -4,42 +4,43 @@ Fetch playlists from GMusicProxy
 #### Requirements
 python-requests  
 python-mpd
+prompt_toolkit
   
 #### Usage
 Fetch playlist of search results:  
-  `playfetch [-fcls] search 'artist, title' --tracks <num> --album --exact`  
+  `playfetch search 'artist, title' --tracks <num> --album --exact`  
   
 Fetch new station playlist from search:  
-  `playfetch [-fcls] radio 'artist, title' --name 'station' --tracks <num> --exact`  
+  `playfetch radio 'artist, title' --name 'station' --tracks <num> --exact`  
   
 Fetch new station playlist from current song:  
-  `playfetch [-fcls] current --tracks <num>`  
+  `playfetch current --tracks <num>`  
   
-Fetch Promoted Tracks playlist:  
-  `playfetch [-fcls] promoted --shoff`  
+Fetch Promoted Tracks (Thumbs Up) playlist:  
+  `playfetch promoted --shoff`  
   
 Fetch I'm Feeling Lucky playlist:  
-  `playfetch [-fcls] lucky --tracks <num>`  
+  `playfetch lucky --tracks <num>`  
   
 Fetch Listen Now playlists:  
-  `playfetch [-f] listen --artist|--album|--situation|--all`  
+  `playfetch listen --artist|--album|--situation|--all`  
   
 Fetch an artist's Top Tracks playlist:  
-  `playfetch [-fcls] top 'artist' --tracks <num>`  
+  `playfetch toptracks 'artist' --tracks <num>`  
   
 Fetch an artist's complete discography:  
-  `playfetch [-f] discog 'artist' --exact`  
+  `playfetch discog 'artist' --exact`  
   
 Fetch user collection playlist:  
-  `playfetch [-fcls] collection --rating <rating> --shoff`  
+  `playfetch collection --rating <rating> --shoff`  
   
 Fetch all user station playlists:  
-  `playfetch [-f] stations`  
+  `playfetch stations`  
   
 Fetch all user playlists:  
-  `playfetch [-f] playlists`  
+  `playfetch playlists`  
   
-rate current track:  
+Rate current track:  
   `playfetch rate --up|--down`  
   
 Print current MPD playlist:  
@@ -49,18 +50,20 @@ List playlists:
   `playfetch list --all`  
   
 Delete playlists:  
-  `playfetch [-f] purge --[filter] --older <hours>`  
+  `playfetch purge --[filter] --older <hours>`  
+  
+Start interactive shell:  
+  `playfetch shell`  
   
   
 #### Options
-*  -f or --force:   Do not prompt for overwrite or delete  
-*  -c or --clear:   Clear current MPD playlist  
-*  -l or --load:    Append to current MPD playlist  
-*  -s or --start:   Start playing current MPD playlist  
-*  -h or --help:    Print help
-*  -d or --debug:   Print debug messages  
-
-
+*  -F or --force:   Do not prompt for overwrite or delete  
+*  -C or --clear:   Clear current MPD playlist  
+*  -L or --load:    Append to current MPD playlist  
+*  -S or --start:   Start playing current MPD playlist  
+*  -A or --auto:    Clear, load, and start MPD playlist
+  
+  
 #### Configuration  
 A configuration file can be placed at `~/.config/playfetch/config`  
 
@@ -70,13 +73,10 @@ A configuration file can be placed at `~/.config/playfetch/config`
 > plist-prefix = play  
 > mpd-host = localhost  
 > mpd-port = 6600  
-> auto-clear = False  
-> auto-load = False  
-> auto-start = False 
   
   
 #### Tips
 * Add `alias pf="playfetch"` to `.zshrc` or `.bashrc`   
-* Add keybind for `playfetch -fcls lucky -t 100`  
+* Add keybind for `playfetch lucky -t 100 -FA`  
   
   

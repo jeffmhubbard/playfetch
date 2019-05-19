@@ -1,3 +1,4 @@
-- Add purge() --newer filter
-- Make purge() --all work with others
-- See if its possible to get Recently Added playlists
+- Complete rewrite with interactive shell
+- Write custom Completer
+- Implement manual loading of playlist like 'mpc load'
+- Work towards fullscreen app
