@@ -26,26 +26,21 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 __title__ = "playfetch"
 __description__ = "Fetch playlists from GMusicProxy"
-__version__ = "v0.1"
+__version__ = 0.2
 
 __paths__ = {
         'cache': path.expanduser('~/.cache/'+__title__),
         'config': path.expanduser('~/.config/'+__title__),
 }
 
-DEBUG = False
+__DEBUG__ = False
 
 # Default configuration
-DEFAULTS = {
-    # GMusicProxy URL
+__defaults__ = {
     'proxy-url': 'http://localhost:9999',
-    # Playlist prefix
     'plist-prefix': 'pf',
-    # Path to MPD playlist directory
     'plist-dest': '~/.mpd/playlists',
-    # Host name of MPD server
     'mpd-host': 'localhost',
-    # Port number of MPD server
     'mpd-port': 6600,
 }
 
@@ -64,7 +59,7 @@ def warn(msg):
 
 
 def debug(msg):
-    if DEBUG:
+    if __DEBUG__:
         print("DEBUG: %s" % msg)
 
 
@@ -328,8 +323,8 @@ class Commands:
 
         try:
             fetch_playlist(config, request, playlist, args)
-            mpc = Mpc(config)
-            mpc.auto(args, filename)
+            mpd = Mpd(config)
+            mpd.auto(args, filename)
         except Exception as e:
             error(e)
 
@@ -399,8 +394,8 @@ class Commands:
 
         try:
             fetch_playlist(config, request, playlist, args)
-            mpc = Mpc(config)
-            mpc.auto(args, filename)
+            mpd = Mpd(config)
+            mpd.auto(args, filename)
         except Exception as e:
             error(e)
 
@@ -410,7 +405,8 @@ class Commands:
 
         debug("current args: %s" % args)
 
-        playid = Mpc.get_playid(Mpc(config))
+        mpd = Mpd(config)
+        playid = mpd.get_playid()
 
         cmd_slug = "current"
         url_cmd = "/get_new_station_by_id"
@@ -442,8 +438,8 @@ class Commands:
 
         try:
             fetch_playlist(config, request, playlist, args)
-            mpc = Mpc(config)
-            mpc.auto(args, filename)
+            mpd = Mpd(config)
+            mpd.auto(args, filename)
         except Exception as e:
             error(e)
 
@@ -485,8 +481,8 @@ class Commands:
 
         try:
             fetch_playlist(config, request, playlist, args)
-            mpc = Mpc(config)
-            mpc.auto(args, filename)
+            mpd = Mpd(config)
+            mpd.auto(args, filename)
         except Exception as e:
             error(e)
 
@@ -521,8 +517,8 @@ class Commands:
 
         try:
             fetch_playlist(config, request, playlist, args)
-            mpc = Mpc(config)
-            mpc.auto(args, filename)
+            mpd = Mpd(config)
+            mpd.auto(args, filename)
         except Exception as e:
             error(e)
 
@@ -557,8 +553,8 @@ class Commands:
 
         try:
             fetch_playlist(config, request, playlist, args)
-            mpc = Mpc(config)
-            mpc.auto(args, filename)
+            mpd = Mpd(config)
+            mpd.auto(args, filename)
         except Exception as e:
             error(e)
 
@@ -674,8 +670,8 @@ class Commands:
 
             try:
                 fetch_playlist(config, request, playlist, args)
-                mpc = Mpc(config)
-                mpc.auto(args, filename)
+                mpd = Mpd(config)
+                mpd.auto(args, filename)
             except Exception as e:
                 error(e)
 
@@ -846,10 +842,10 @@ class Commands:
         if args.all:
             match = None
 
-        mpc = Mpc(config)
+        mpd = Mpd(config)
         # Filter playlists starting with prefix
         to_list = []
-        for p in mpc.list_playlists():
+        for p in mpd.list_playlists():
             if args.all:
                 to_list.append(p['playlist'])
             elif p['playlist'].split('-')[0] == match:
@@ -878,15 +874,15 @@ class Commands:
         if args.both:
             status = True
 
-        mpc = Mpc(config)
+        mpd = Mpd(config)
 
         if plist:
-            mpc.playlist()
+            mpd.playlist()
 
         if status:
             if plist:
                 print(u'\u2500'*80)
-            mpc.status()
+            mpd.status()
 
     def rate(self, config, args):
         """Rate song currently playing in MPD
@@ -894,8 +890,8 @@ class Commands:
 
         debug("rate args: %s" % args)
 
-        mpc = Mpc(config)
-        playid = mpc.get_playid()
+        mpd = Mpd(config)
+        playid = mpd.get_playid()
         debug('playid: %s' % playid)
 
         url_opts = {'id': playid}
@@ -918,7 +914,7 @@ class Commands:
         if request.status_code == 200:
             info(success)
             if skip:
-                mpc.next()
+                mpd.next()
 
     def purge(self, config, args):
         """Delete playlists
@@ -952,8 +948,8 @@ class Commands:
             older = int(args.older)
 
         # Query MPD
-        mpc = Mpc(config)
-        plist_data = mpc.list_playlists()
+        mpd = Mpd(config)
+        plist_data = mpd.list_playlists()
 
         # Playlists to delete
         to_delete = []
@@ -1004,8 +1000,22 @@ class Commands:
                 except Exception as e:
                     error(e)
 
+    def mpc(self, config, args):
+        mpd = Mpd(config)
+        if args.play:
+            mpd.play()
+        elif args.pause:
+            mpd.pause()
+        elif args.stop:
+            mpd.stop()
+        elif args.next:
+            mpd.next()
+        elif args.prev:
+            mpd.prev()
+        pass
 
-class Mpc:
+
+class Mpd:
 
     def __init__(self, config):
         self.config = config
@@ -1288,47 +1298,19 @@ class PfCli(Commands):
 
             # Enable debugging
             if self.args.debug:
-                global DEBUG
-                DEBUG = True
+                global __DEBUG__
+                __DEBUG__ = True
 
             # Load user configuration
-            self.config = load_config(DEFAULTS)
+            self.config = load_config(__defaults__)
 
             # Call subcommand
             debug('subparser: %s' % self.args.subparser)
-            # cmd = Commands()
-            if self.args.subparser == 'shell':
-                self.shell(self.config, self.args)
-            elif self.args.subparser == 'search':
-                self.search(self.config, self.args)
-            elif self.args.subparser == 'radio':
-                self.radio(self.config, self.args)
-            elif self.args.subparser == 'current':
-                self.current(self.config, self.args)
-            elif self.args.subparser == 'collection':
-                self.collection(self.config, self.args)
-            elif self.args.subparser == 'promoted':
-                self.promoted(self.config, self.args)
-            elif self.args.subparser == 'lucky':
-                self.lucky(self.config, self.args)
-            elif self.args.subparser == 'stations':
-                self.stations(self.config, self.args)
-            elif self.args.subparser == 'listen':
-                self.listen(self.config, self.args)
-            elif self.args.subparser == 'playlists':
-                self.playlists(self.config, self.args)
-            elif self.args.subparser == 'discog':
-                self.discog(self.config, self.args)
-            elif self.args.subparser == 'toptracks':
-                self.toptracks(self.config, self.args)
-            elif self.args.subparser == 'show':
-                self.show(self.config, self.args)
-            elif self.args.subparser == 'list':
-                self.list(self.config, self.args)
-            elif self.args.subparser == 'purge':
-                self.purge(self.config, self.args)
-            elif self.args.subparser == 'rate':
-                self.rate(self.config, self.args)
+            try:
+                run = getattr(self, self.args.subparser)
+                run(self.config, self.args)
+            except TypeError:
+                pass
 
         except Exception as e:
             error(e)
@@ -1336,6 +1318,40 @@ class PfCli(Commands):
     def read_args(self):
         """Read command line arguments
         """
+
+        main_parser = argparse.ArgumentParser(add_help=False)
+        # debug
+        main_parser.add_argument(
+                '-D', '--debug',
+                action='store_true',
+                help="Print debug strings")
+        # auto confirm
+        main_parser.add_argument(
+                '-F', '--force',
+                action='store_true',
+                help="Do not prompt for confirmation")
+
+        post_parser = argparse.ArgumentParser(add_help=False)
+        # auto clear
+        post_parser.add_argument(
+                '-C', '--clear',
+                action='store_true',
+                help="Clear current MPD playlist")
+        # auto load
+        post_parser.add_argument(
+                '-L', '--load',
+                action='store_true',
+                help="Append to current MPD playlist")
+        # auto play
+        post_parser.add_argument(
+                '-S', '--start',
+                action='store_true',
+                help="Start current MPD playlist")
+        # auto all
+        post_parser.add_argument(
+                '-A', '--auto',
+                action='store_true',
+                help="Clear, load, and start playlist")
 
         parser = argparse.ArgumentParser(
             prog=__title__,
@@ -1345,31 +1361,6 @@ class PfCli(Commands):
                 '-d', '--debug',
                 action='store_true',
                 help="Print debug strings")
-        # auto confirm
-        parser.add_argument(
-                '-f', '--force',
-                action='store_true',
-                help="Do not prompt for confirmation")
-        # auto clear
-        parser.add_argument(
-                '-c', '--clear',
-                action='store_true',
-                help="Clear current MPD playlist")
-        # auto load
-        parser.add_argument(
-                '-l', '--load',
-                action='store_true',
-                help="Append to current MPD playlist")
-        # auto play
-        parser.add_argument(
-                '-s', '--start',
-                action='store_true',
-                help="Start current MPD playlist")
-        # auto all
-        parser.add_argument(
-                '-a', '--auto',
-                action='store_true',
-                help="Clear, load, and start playlist")
 
         # sub commands
         subparsers = parser.add_subparsers(dest='subparser')
@@ -1377,14 +1368,16 @@ class PfCli(Commands):
         # shell subcommand
         parser_shell = subparsers.add_parser(
                 'shell',
+                parents=[main_parser],
                 description="Start interactive shell",
                 usage="playfetch shell")
 
         # search subcommand
         parser_search = subparsers.add_parser(
                 'search',
+                parents=[main_parser, post_parser],
                 description="Fetch playlist of search results",
-                usage="playfetch [-fcls] search <string> -t <num> -e -a")
+                usage="playfetch search 'artist, title' -t <num> -e -a")
         # search string
         parser_search.add_argument(
                 'search_string',
@@ -1410,8 +1403,9 @@ class PfCli(Commands):
         # radio subcommand
         parser_radio = subparsers.add_parser(
                 'radio',
+                parents=[main_parser, post_parser],
                 description="Fetch new station playlist",
-                usage="playfetch [-fcls] radio <string> -n <name> -t <num> -e")
+                usage="playfetch radio <string> -n <name> -t <num> -e")
         # search string
         parser_radio.add_argument(
                 'search_string',
@@ -1437,8 +1431,9 @@ class PfCli(Commands):
         # current subcommand
         parser_current = subparsers.add_parser(
                 'current',
+                parents=[main_parser, post_parser],
                 description="Fetch new station playlist based on current song",
-                usage="playfetch [-fcls] radio <string> -n <name> -t <num> -e")
+                usage="playfetch radio <string> -n <name> -t <num> -e")
         # num tracks
         parser_current.add_argument(
                 '-t', '--tracks',
@@ -1449,8 +1444,9 @@ class PfCli(Commands):
         # top subcommand
         parser_top = subparsers.add_parser(
                 'toptracks',
+                parents=[main_parser, post_parser],
                 description="Fetch an Artist's Top Tracks playlist",
-                usage="playfetch [-fcls] top <string> -t <num>")
+                usage="playfetch top <string> -t <num>")
         # search string
         parser_top.add_argument(
                 'search_string',
@@ -1466,8 +1462,9 @@ class PfCli(Commands):
         # collection subcommand
         parser_collection = subparsers.add_parser(
                 'collection',
+                parents=[main_parser, post_parser],
                 description="Fetch collection playlist",
-                usage="playfetch [-fcls] collection -r <num> --shoff")
+                usage="playfetch collection -r <num> --shoff")
         # min rating
         parser_collection.add_argument(
                 '-r', '--rating',
@@ -1483,8 +1480,9 @@ class PfCli(Commands):
         # promoted subcommand
         parser_promoted = subparsers.add_parser(
                 'promoted',
+                parents=[main_parser, post_parser],
                 description="Fetch Promoted Tracks playlist",
-                usage="playfetch [-fcls] promoted")
+                usage="playfetch promoted")
         # disable shuffle
         parser_promoted.add_argument(
                 '--shoff',
@@ -1494,8 +1492,9 @@ class PfCli(Commands):
         # ifl subcommand
         parser_lucky = subparsers.add_parser(
                 'lucky',
+                parents=[main_parser, post_parser],
                 description="Fetch I'm Feeling Lucky playlist",
-                usage="playfetch [-fcls] lucky -t <num>")
+                usage="playfetch lucky -t <num>")
         # num tracks
         parser_lucky.add_argument(
                 '-t', '--tracks',
@@ -1503,17 +1502,12 @@ class PfCli(Commands):
                 type=int,
                 help="Number of tracks to return")
 
-        # stations subcommand
-        parser_stations = subparsers.add_parser(
-                'stations',
-                description="Fetch all registered stations",
-                usage="playfetch [-f] stations")
-
         # listen subcommand
         parser_listen = subparsers.add_parser(
                 'listen',
+                parents=[main_parser],
                 description="Fetch Listen Now stations",
-                usage="playfetch [-f] listen --all")
+                usage="playfetch listen --all")
         # listen artist
         parser_listen.add_argument(
                 '-r', '--artist',
@@ -1535,17 +1529,26 @@ class PfCli(Commands):
                 action='store_true',
                 help="Fetch all Listen Now playlists")
 
+        # stations subcommand
+        parser_stations = subparsers.add_parser(
+                'stations',
+                parents=[main_parser],
+                description="Fetch all registered stations",
+                usage="playfetch stations")
+
         # playlists subcommand
         parser_playlists = subparsers.add_parser(
                 'playlists',
+                parents=[main_parser],
                 description="Fetch all user playlists",
-                usage="playfetch [-f] playlists")
+                usage="playfetch playlists")
 
         # discog subcommand
         parser_discog = subparsers.add_parser(
                 'discog',
+                parents=[main_parser],
                 description="Fetch artist discography",
-                usage="playfetch [-fcls] discog <string> -e")
+                usage="playfetch discog <string> -e")
         # search string
         parser_discog.add_argument(
                 'search_string',
@@ -1560,6 +1563,7 @@ class PfCli(Commands):
         # print current mpd playlist
         parser_show = subparsers.add_parser(
                 'show',
+                parents=[main_parser],
                 description="Print current MPD playlist",
                 usage="playfetch show")
         # print status
@@ -1576,8 +1580,9 @@ class PfCli(Commands):
         # list playlists in path
         parser_list = subparsers.add_parser(
                 'list',
+                parents=[main_parser],
                 description="List playlists with matching prefix",
-                usage="playfetch list [-a]")
+                usage="playfetch list --all")
         # list all
         parser_list.add_argument(
                 '-a', '--all',
@@ -1587,8 +1592,9 @@ class PfCli(Commands):
         # purge playlists in path
         parser_purge = subparsers.add_parser(
                 'purge',
+                parents=[main_parser],
                 description="Delete playlists with matching prefix",
-                usage="playfetch [-f] purge --[filter]")
+                usage="playfetch purge --[filter] --older")
         # filter searches
         parser_purge.add_argument(
                 '--search',
@@ -1619,8 +1625,9 @@ class PfCli(Commands):
         # rate current song
         parser_rate = subparsers.add_parser(
                 'rate',
+                parents=[main_parser],
                 description="rate song currently playing in MPD",
-                usage="playfetch rate --[up/down]")
+                usage="playfetch rate --up|--down")
         # thumbs up
         parser_rate.add_argument(
                 '-u', '--up',
@@ -1638,7 +1645,7 @@ class PfCli(Commands):
 class PfShell(Commands):
 
     completer = FuzzyWordCompleter([
-        'help', 'search', 'current', 'toptracks',
+        'mpc', 'search', 'current', 'toptracks',
         'discog', 'radio', 'listen', 'lucky',
         'promoted', 'collection', 'stations',
         'playlists', 'purge', 'list', 'show', 'rate',
@@ -1646,7 +1653,7 @@ class PfShell(Commands):
         '--album', '--name', '--artist',
         '--situation', '--all', '--status',
         '--both', '--shoff', '--up', '--down',
-        '--force', '--clear', '--load', '--start',
+        '--force', '--clear', '--load', '--start', '--auto',
         '--play', '--pause', '--stop', '--next', '--prev',
     ])
 
@@ -1658,10 +1665,10 @@ class PfShell(Commands):
 
         # Enable debugging
         if args.debug:
-            global DEBUG
-            DEBUG = True
+            global __DEBUG__
+            __DEBUG__ = True
 
-        info("♫ %s - %s" % (__title__, __version__))
+        info("♫ %s v%s" % (__title__, __version__))
         info('(Ctrl-D to quit)')
 
         completer = self.completer
@@ -1686,7 +1693,11 @@ class PfShell(Commands):
                 debug("new args: %s" % args)
 
                 debug("execute: %s" % args.subparser)
-                self.execute(config, args)
+                try:
+                    run = getattr(self, args.subparser)
+                    run(config, args)
+                except TypeError:
+                    pass
 
             except ShellError as e:
                 warn(e)
@@ -1699,16 +1710,6 @@ class PfShell(Commands):
 
             except Exception as e:
                 error(e)
-
-    def execute(self, config, args):
-
-        debug("execute args: %s" % args)
-
-        try:
-            run = getattr(self, args.subparser)
-            run(config, args)
-        except TypeError:
-            pass
 
     def read_args(self, command):
         """Parse commands in interactive shell
@@ -1737,7 +1738,7 @@ class PfShell(Commands):
         subparsers = parser.add_subparsers(dest='subparser')
 
         parser_mpc = subparsers.add_parser(
-                'm',
+                'mpc',
                 add_help=False)
         parser_mpc.add_argument(
                 '--play',
