@@ -51,12 +51,16 @@ List playlists:
 Delete playlists:  
   `playfetch [-f] purge --[filter] --older <hours>`  
   
+Start interactive shell:  
+  `playfetch shell`  
+  
   
 #### Options
 *  -f or --force:   Do not prompt for overwrite or delete  
 *  -c or --clear:   Clear current MPD playlist  
 *  -l or --load:    Append to current MPD playlist  
 *  -s or --start:   Start playing current MPD playlist  
+*  -a or --auto:    Clear, load, and start MPD playlist
 *  -h or --help:    Print help
 *  -d or --debug:   Print debug messages  
 
@@ -70,9 +74,6 @@ A configuration file can be placed at `~/.config/playfetch/config`
 > plist-prefix = play  
 > mpd-host = localhost  
 > mpd-port = 6600  
-> auto-clear = False  
-> auto-load = False  
-> auto-start = False 
   
   
 #### Tips
